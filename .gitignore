@@ -1,69 +1,132 @@
-# Prerequisites
-*.d
+# ============================================================================
+# 智能家居监控系统 .gitignore
+# 适用：VSCode 远程开发（Ubuntu 服务器）+ Qt Creator（Qt 客户端）+ 小组 GitHub 协同
+# ============================================================================
 
-# Compiled Object files
-*.slo
-*.lo
+
+# ----------------------------------------------------------------------------
+# C / C++ 编译产物
+# ----------------------------------------------------------------------------
+# 依赖中间文件
+*.d
+*.depend
+# 目标文件
 *.o
 *.obj
-
-# Precompiled Headers
+*.lo
+*.slo
+# 预编译头
 *.gch
 *.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
+# 动态库 / 静态库
 *.so
+*.so.*
 *.dylib
 *.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
 *.la
+*.lai
 *.a
 *.lib
-
-# Executables
+# 可执行文件
 *.exe
 *.out
 *.app
+# 服务器编译产物（主程序）
+SmartHomeMonitorServer
+server
+client
 
-# Build directories
-build/
-Build/
+
+# ----------------------------------------------------------------------------
+# Qt / Qt Creator（客户端）
+# ----------------------------------------------------------------------------
+# Qt Creator 用户配置（含本机构建路径，勿提交）
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.pro.project
+*.pro.project.*
+# Qt Creator 默认的 out-of-source 构建目录
 build-*/
+build/
+*/build/
+# qmake 生成的编译脚本（注意：服务器根目录的手写 Makefile 需要保留跟踪）
+object_script.*.Debug
+object_script.*.Release
+# moc / uic / rcc 生成的代码
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+# Qt 编译出的二进制资源
+*.qm
+*.moc
+# Qt 翻译编译产物（.qm），保留翻译源文件 .ts
 
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
 
-# Temporary files
-*.tmp
-*.log
-*.bak
+# ----------------------------------------------------------------------------
+# VSCode（远程开发）
+# ----------------------------------------------------------------------------
+# 默认忽略个人配置，保留团队共享的调试 / 任务 / 插件配置
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+
+# ----------------------------------------------------------------------------
+# 编辑器 / 临时文件
+# ----------------------------------------------------------------------------
+# VIM 交换文件
 *.swp
+*.swo
+*.swn
+*~
+# 其他编辑器备份
+*.bak
+*.tmp
 
-# vcpkg
-vcpkg_installed/
 
-# debug information files
-*.dwo
+# ----------------------------------------------------------------------------
+# 操作系统
+# ----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
 
-# test output & cache
-Testing/
-.cache/
+
+# ----------------------------------------------------------------------------
+# 日志文件
+# ----------------------------------------------------------------------------
+*.log
+log/
+logs/
+
+
+# ----------------------------------------------------------------------------
+# 录像 / 音视频数据（体积大，勿提交）
+# ----------------------------------------------------------------------------
+data/
+record/
+videos/
+
+
+# ----------------------------------------------------------------------------
+# 配置文件（含服务器 IP 等本机信息）
+# ----------------------------------------------------------------------------
+# 约定：提交 server.conf.example 作为模板，本地把 example 复制成 server.conf
+conf/server.conf
+*.local.conf
+
+
+# ----------------------------------------------------------------------------
+# 其他
+# ----------------------------------------------------------------------------
+*.pid
+*.core
+core
+core.*
