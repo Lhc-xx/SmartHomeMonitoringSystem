@@ -1,260 +1,100 @@
-# 智能家居监控系统（SmartHomeMonitorServer）
-
-一个基于 **C/S 架构** 的智能家居监控系统：服务器端负责接入 IPC 摄像头、转发音视频流、用户认证与录像存储；Qt 客户端负责实时画面展示、云台控制、录像回看与设备管理。
-
-系统接入「迅思维」厂商摄像头（枪机/球机），支持 RTSP / RTMP 拉流、HLS 录像回看，并预留智慧厨房等多传感器场景扩展能力。
-
----
-
-## 一、功能特性
-
-- **用户体系**：注册 / 登录，密码加盐（MD5）存储于 MySQL
-- **实时监控**：拉取并解码摄像头 RTSP / RTMP 实时流，Qt 客户端实时显示
-- **云台控制**：通过厂商接口对枪机 / 球机进行云台控制
-- **流媒体转发**：服务器作为中间人转发 HTTP 请求与实时流
-- **录像存储**：服务器按分片（TS 文件 + HLS）存储摄像头录像
-- **录像回看**：客户端按时间区间回看录像
-- **设备管理**：登录后从服务器加载设备列表（hash 存储于内存）
-- **智慧厨房（扩展）**：传感器数据入库 + 客户端 UI 展示
-
----
-
-## 二、项目架构
-
-采用 **C/S 架构**，包含一个服务器与两类客户端：
-
-| 角色 | 说明 |
-| :--: | :-- |
-| 服务器 | Ubuntu 22.04 + C++11，负责认证、数据库、流媒体转发与录像存储 |
-| 客户端一 | Ubuntu 22.04 + C，基础功能客户端 |
-| 客户端二 | Windows 11 + Qt 5.14.2，图形化主客户端（拉流显示、云台、回看） |
-
-> 详细架构见文档《智能家居监控系统需求.md》中的「项目架构图 1.0」与「架构图 2.0」。
-
----
-
-## 三、开发环境
-
-### 服务器端
-
-| 项 | 值 |
-| :-- | :-- |
-| 操作系统 | Ubuntu 22.04 |
-| 编程语言 | C++11 |
-| 编译器 | g++ 11.4.0 |
-| 编辑器 | VIM 8.2 |
-
-### 客户端一
-
-| 项 | 值 |
-| :-- | :-- |
-| 操作系统 | Ubuntu 22.04 |
-| 编程语言 | C |
-| 编译器 | g++ 11.4.0 |
-| 编辑器 | VIM 8.2 |
-
-### 客户端二
-
-| 项 | 值 |
-| :-- | :-- |
-| 操作系统 | Windows 11 |
-| 编程语言 | C++ |
-| 开发框架 | Qt 5.14.2 |
-| 开发工具 | Qt Creator 4.11.1 |
-
----
-
-## 四、服务器目录结构
-
-    SmartHomeMonitorServer/
-    ├── conf/server.conf     # 服务器配置文件
-    ├── include/*.hpp        # 头文件（*.h / *.hpp）
-    ├── src/*.cc             # 源码实现文件
-    ├── log/server.log       # 运行日志
-    ├── data/                # 录制视频文件
-    └── Makefile             # 编译脚本
-
----
-
-## 五、配置文件（server.conf）
-
-服务器启动时读取配置，启动方式：
-
-    ./SmartHomeMonitorServer ./conf/server.conf
-
-配置内容格式：
-
-    ip              192.168.30.129    # 服务器 Ubuntu IP
-    port            8000
-    thread_num      4
-    task_num        10000
-    video_path      ./data/
-    log_file        ./log/server.log
-
----
-
-## 六、技术栈
-
-| 分类 | 技术 |
-| :-- | :-- |
-| 语言 | C / C++11 |
-| GUI 框架 | Qt 5.14.2 |
-| 音视频 | FFmpeg、VLC（libvlc）、SDL |
-| 流媒体协议 | RTSP、RTMP、HLS、RTP |
-| 网络库 | libcurl |
-| 数据解析 | cJSON、nlohmann/json |
-| 数据库 | MySQL |
-| 加密 | yescrypt / md5crypt（服务器）、MD5（Qt 客户端） |
-| 抓包调试 | Wireshark |
-
----
-
-## 七、通信协议（TLV 自定义协议）
-
-服务器与客户端之间采用自定义应用层协议，每条消息格式：
-
-| 消息ID（Type）4B | 消息长度（Length）4B | 消息内容（Value） |
-| :-: | :-: | :-: |
-
-- **Type**：消息类型标识
-- **Length**：消息内容字节长度
-- **Value**：实际数据（可为嵌套结构）
-
-> 优点：结构灵活、二进制高效、自描述性强；缺点：解析复杂、需处理字节序（大小端）。
-
----
-
-## 八、数据库设计
-
-### 1. 用户表（二期）
-
-| 字段 | 类型 | 说明 |
-| :-- | :-- | :-- |
-| id | int | 主键 |
-| name | varchar(20) | 用户名 |
-| setting | char | 前缀 + 盐值（MD5） |
-| encrypt | char | 加密密文 |
-
-> Qt 客户端使用 QCryptographicHash::Md5 生成密文，格式如 $1$salt1234$DWd0zR7tJylY/.zWqk1NV0。
-
-### 2. 设备表（四期）
-
-| 字段 | 说明 |
-| :-- | :-- |
-| id | 主键 |
-| type | 0=枪机，1=球机 |
-| serial_no | 设备序列号 |
-| channels | 通道数 |
-| ip | 设备 IP |
-| rtsp / rtmp | 拉流地址 |
-
-> 登录后服务器从数据库加载设备列表到内存（hash 结构），客户端登录后获取并展示设备列表。
-
-### 3. 录像元数据表（四期）
-
-| 字段 | 说明 |
-| :-- | :-- |
-| id | 主键 |
-| name | 录像文件名 |
-| start_time / end_time | 起止时间 |
-| camera_id | 摄像头 ID |
-| channel | 通道号 |
-
----
-
-## 九、开发阶段里程碑
-
-项目按五期推进，逐步从「服务器框架」演进到「完整监控系统」。
-
-### 一期：服务器基础框架搭建
-
-- 单例模式实现 Configuration 配置类
-- 服务器日志记录
-- 服务器框架搭建（线程池 + TLV 消息协议）
-- 密码验证（yescrypt / md5crypt）
-
-### 二期：数据库接入 + 用户体系
-
-- 封装 MySQLClient 数据读写类
-- 用户注册（用户表设计、随机盐值生成、Qt 加密）
-- 用户登录
-
-### 三期：拉流显示 + 对接真实摄像头
-
-- VLC（libvlc）查看 RTSP 实时流
-- FFmpeg 查看 RTSP / RTMP 实时流（sws_scale YUV→RGB、UI/解码双线程）
-- 前端 UI 布局
-- 迅思维设备对接：枪机 / 球机、token 生成、云台控制、Wireshark 抓包
-
-### 四期：服务器中转与录像（核心）
-
-- 服务器转发 HTTP 请求（libcurl）
-- JSON 格式解析（cJSON / nlohmann/json / Qt）
-- 服务器转发实时流（RingBuffer 环形缓冲解决线程安全）
-- 摄像头基本信息设计（设备表）
-- 客户端回看录像（HLS 协议）
-- 服务器存储录像（TS 切片、分片存储、元数据）
-
-### 五期：智慧厨房集成 + 架构升级
-
-- 集成智慧厨房（传感器数据建表入库 + Qt UI 展示）
-- 架构图 2.0
-- 迅思维其他功能扩展
-
----
-
-## 十、录像存储设计
-
-录像存储采用「采集 → 编码封装 → 存储管理 → 回放」链路：
-
-    摄像头 → 数据接入层 → 编码/封装层 → 存储管理层 → 存储柜
-                            ↓
-                      管理/检索系统（回放/查询）
-
-- **数据接入**：优先 RTSP 协议拉取摄像头流
-- **编码封装**：生成 TS 文件，配合 HLS 切片
-- **存储管理**：按分片存储（可按大小如 100M/1G，或按时间如 1/10/30/60 分钟）
-- **检索回放**：通过录像元数据表查询，客户端回看
-
----
-
-## 十一、文档说明
-
-项目文档位于 11_项目文档/ 目录，共三份：
-
-| 文档 | 内容 |
-| :-- | :-- |
-| 1.智能家居监控系统需求.md | 主线文档，按五期记录系统需求与实现 |
-| 2.音视频知识学习.md | 音视频理论基础（音频/视频/编解码/FFmpeg） |
-| 3.Qt+FFmpeg实战.md | Qt+FFmpeg 工程实战（环境搭建/协议层/封装层/编解码层/音视频同步） |
-
----
-
-## 十二、快速开始
-
-### 服务器端
-
-    # 1. 编译（使用 Makefile）
-    make
-
-    # 2. 启动（读取配置文件）
-    ./SmartHomeMonitorServer ./conf/server.conf
-
-### 客户端
-
-1. 使用 Qt Creator 打开客户端工程
-2. 配置 FFmpeg / VLC 依赖库
-3. 编译运行，登录后即可查看设备列表与实时画面
-
----
-
-## 十三、已知问题（BUG 集锦）
-
-- **Bug1**：崩溃现场记录（详见需求文档「BUG 集锦」章节）
-
----
-
-## 十四、参考资料
-
-- 迅思维厂商接口文档（设备后台管理、token 生成、云台控制等）
-- FFmpeg / libvlc / libcurl / SDL 官方文档
+# 智能家居监控系统
+
+这是一个面向小组协同开发的 C/S 智能家居监控系统基础工程骨架。
+当前阶段只提供：
+
+- 服务器、Linux 客户端、Qt 客户端、公共模块的目录结构；
+- CMake 构建入口；
+- 一个最小可运行的 `Test` 测试类；
+- 脱敏配置示例、数据库脚本占位和协作文档入口。
+
+当前不包含真实网络、MySQL、FFmpeg、Qt 界面或摄像头业务代码。后续开发请在对应模块目录中增量实现，避免把业务代码全部堆在根目录。
+
+## 目录结构
+
+```text
+SmartHomeMonitoringSystem/
+├── CMakeLists.txt                 # 顶层构建入口（cmake -S . -B build）
+├── .gitignore                     # 忽略编译产物、日志、录像、本机配置
+├── .github/workflows/ci.yml       # CI：push/PR 到 dev-integration、master 自动构建+测试
+├── README.md                      # 项目说明与快速开始
+├── LICENSE
+├── 监控系统项目分工计划.md
+├── common/                        # 客户端与服务器共享代码【B 主导】
+│   ├── include/common/            # 通用类型、错误码、时间/字符串工具
+│   ├── include/protocol/          # TLV 协议头、消息类型、序列化（跨端只定义一份）
+│   ├── src/                       # 公共实现
+│   └── tests/                     # 公共模块测试
+├── server/                        # C++11 服务器【A 主导】
+│   ├── conf/server.conf.example   # 脱敏配置模板（本地复制为 server.conf）
+│   ├── include/                   # 服务器头文件
+│   ├── src/                       # 网络、配置、日志、数据库、媒体等实现
+│   ├── log/                       # 运行日志（仅 .gitkeep）
+│   ├── data/                      # 录像/临时数据（仅 .gitkeep）
+│   ├── tests/                     # 服务器测试
+│   ├── Makefile                   # 最小本地构建入口
+│   └── CMakeLists.txt
+├── client/
+│   ├── linux/                     # Linux 基础客户端/联调客户端【A/D 联调】
+│   │   ├── include/  src/  conf/  tests/
+│   │   └── CMakeLists.txt
+│   └── qt/                        # Windows Qt 图形客户端【B/D 界面，C 解码，A 网络层】
+│       ├── include/  src/  forms/  resources/  tests/
+│       ├── conf/client.conf.example
+│       └── CMakeLists.txt         # 接入 Qt 后补充 find_package(Qt5 ...)
+├── database/                      # SQL、迁移和种子数据【B】
+│   ├── schema/                    # 完整表结构 SQL
+│   ├── migrations/                # 按版本递增的结构变更 SQL
+│   └── seed/                      # 脱敏初始化数据
+├── docs/                          # 协议、数据库、设计、开发和测试文档
+│   ├── protocol/                  # TLV 协议、消息类型、错误码、请求响应示例
+│   ├── database/                  # 表结构、索引、字段约束
+│   ├── design/                    # 架构图、模块职责、时序图
+│   ├── development/               # 构建、分支、提交、调试说明
+│   └── testing/                   # 测试用例、联调记录、验收报告
+├── scripts/                       # 构建、测试、格式化等辅助脚本
+├── third_party/                   # 第三方依赖说明或源码（默认不提交构建产物）
+└── build/                         # 本地构建输出，不提交 Git
+```
+
+## 构建与运行
+
+### 使用 CMake（推荐）
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+运行最小测试：
+
+```bash
+./build/server/tests/server_test
+```
+
+Windows 下生成器不同，运行目标可能位于 `build/Debug/` 或 `build/Release/`。
+
+### 使用 Makefile
+
+服务器目录保留了一个不依赖第三方库的最小 Makefile：
+
+```bash
+make -C server test
+```
+
+## 协同开发约定
+
+- `master`：稳定演示版本；禁止直接开发。
+- `dev-integration`：日常集成和联调分支。
+- `dev-lhc`、`dev-lqw`、`dev-pyj`、`dev-xgq`：个人功能分支。
+- 提交信息建议使用 `feat:`、`fix:`、`test:`、`docs:` 前缀。
+- 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件使用 `.example`。
+- 公共协议和数据结构先更新 `common/` 与 `docs/protocol/`，再分别实现服务器和客户端。
+
+## 当前最小验收标准
+
+- 能配置并生成 CMake 工程；
+- `Test` 类可被服务器测试程序调用；
+- 测试输出 `Test passed.` 并返回 0；
+- 三个主要模块均有清晰的后续代码放置位置。

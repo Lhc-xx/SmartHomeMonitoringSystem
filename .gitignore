@@ -33,8 +33,6 @@
 *.app
 # 服务器编译产物（主程序）
 SmartHomeMonitorServer
-server
-client
 
 
 # ----------------------------------------------------------------------------
@@ -49,8 +47,9 @@ client
 *.pro.project.*
 # Qt Creator 默认的 out-of-source 构建目录
 build-*/
-build/
 */build/
+# 客户端等二级嵌套模块的构建目录
+client/**/build/
 # qmake 生成的编译脚本（注意：服务器根目录的手写 Makefile 需要保留跟踪）
 object_script.*.Debug
 object_script.*.Release
@@ -103,14 +102,12 @@ ehthumbs.db
 # 日志文件
 # ----------------------------------------------------------------------------
 *.log
-log/
 logs/
 
 
 # ----------------------------------------------------------------------------
 # 录像 / 音视频数据（体积大，勿提交）
 # ----------------------------------------------------------------------------
-data/
 record/
 videos/
 
@@ -119,7 +116,7 @@ videos/
 # 配置文件（含服务器 IP 等本机信息）
 # ----------------------------------------------------------------------------
 # 约定：提交 server.conf.example 作为模板，本地把 example 复制成 server.conf
-conf/server.conf
+server/conf/server.conf
 *.local.conf
 
 
@@ -130,3 +127,40 @@ conf/server.conf
 *.core
 core
 core.*
+
+# Project runtime/build output
+/build/*
+!/build/.gitkeep
+/server/log/*
+!/server/log/.gitkeep
+/server/data/*
+!/server/data/.gitkeep
+/client/**/log/*
+/client/**/data/*
+
+# ----------------------------------------------------------------------------
+# CMake 构建产物（防就地构建；团队统一 cmake -S . -B build，此处为兜底）
+# ----------------------------------------------------------------------------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+CMakeUserPresets.json
+
+# ----------------------------------------------------------------------------
+# qmake / 其他 IDE / 语言服务器缓存
+# ----------------------------------------------------------------------------
+.qmake.stash
+.idea/
+.cache/
+.clangd/
+
+# ----------------------------------------------------------------------------
+# third_party 第三方依赖（仅提交受控源码，忽略下载缓存与编译产物）
+# ----------------------------------------------------------------------------
+third_party/**/build/
+third_party/downloads/
+third_party/*.tar.*
+third_party/*.zip
