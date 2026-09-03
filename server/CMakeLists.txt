@@ -3,8 +3,9 @@ project(server LANGUAGES CXX)
 
 add_executable(smart_home_server
     src/main.cc
+    src/logger.cc
 )
 
-target_link_libraries(smart_home_server PRIVATE smart_home_common)
+target_link_libraries(smart_home_server PRIVATE smart_home_common log4cpp pthread)
 target_compile_features(smart_home_server PRIVATE cxx_std_11)
 target_include_directories(smart_home_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
