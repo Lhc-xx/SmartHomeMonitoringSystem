@@ -1,4 +1,4 @@
-#include "../include/logger.h"
+#include "logger.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -31,12 +31,8 @@ Logger::Logger(const std::string &log_file){
 Logger::~Logger(){
     if (_root != nullptr) {
         // 这个版本的 Category 没有返回 map 的 getAppenders()，
-        // 按名字取出两个 Appender，从 root 上移除后再删除。
-        Appender *consoleAppender = _root->getAppender("console");
-        Appender *fileAppender = _root->getAppender("file");
+        // 由 Category 统一移除输出器，避免手动 delete 导致重复释放。
         _root->removeAllAppenders();
-        // delete consoleAppender;
-        // delete fileAppender;
         _root = nullptr;
     }
 }
@@ -84,5 +80,3 @@ void Logger::error(const char *file, int line, const char *func, const char *msg
                     file, line, func, msg);
     _root->error(buffer);
 }
-
-

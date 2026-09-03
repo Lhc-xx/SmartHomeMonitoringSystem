@@ -2,8 +2,8 @@
 
 #include <fstream>  // std::ofstream：写临时配置文件用
 
-#include "../include/config.h"
-#include "../include/logger.h"
+#include "config.h"
+#include "logger.h"
 
 bool Test::run() const {
     // ================= 第 1 部分：测试日志模块 =================
