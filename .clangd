@@ -1,2 +1,6 @@
 CompileFlags:
   CompilationDatabase: build
+  Add:
+    - -Icommon/include
+    - -Iserver/include
+    - -std=c++11
