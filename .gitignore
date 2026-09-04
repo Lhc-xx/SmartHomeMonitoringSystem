@@ -169,3 +169,4 @@ third_party/*.zip
 thread_pool_test
 reactor_test
 smart_home_server
+smart_home_linux_client
