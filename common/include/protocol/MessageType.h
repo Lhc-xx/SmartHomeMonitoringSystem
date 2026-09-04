@@ -16,7 +16,7 @@ enum class MessageType : uint16_t{
     REGISTER_RESPONSE = 0x1002,
 
     LOGIN_REQUEST = 0x1101,
-    LOGIN_RESPONST = 0x1102,
+    LOGIN_RESPONSE = 0x1102,
 
     //设备
     DEVICE_LIST_REQUEST = 0x1201,
