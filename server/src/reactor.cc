@@ -1,5 +1,6 @@
 #include "reactor.h"
 #include "connection.h"
+#include "logger.h"
 
 #include <cerrno>
 #include <string>
@@ -105,8 +106,7 @@ namespace smart_home {
                     ev.events = EPOLLIN; // 监视可读事件
                     ev.data.fd = connFd;
                     epoll_ctl(_epFd, EPOLL_CTL_ADD, connFd, &ev); // 注册进epoll
-                    std::cout << "new connection, fd: " << connFd << std::endl;
-
+                    LOG_INFO(("new connection, fd = " + std::to_string(connFd)).c_str());
                 }else{
                     // 已连接的fd  有读写/断开事件发生
                     auto it = _conn.find(fd);
@@ -120,11 +120,11 @@ namespace smart_home {
                         std::string data = conn->readBuffer();
                         conn->readBuffer().clear();
                         _pool.addTask([data](){
-                            std::cout << "recv " << data.size() << " bytes: "<< data << std:: endl;
+                            LOG_INFO(("recv " + std::to_string(data.size()) + " bytes: " + data).c_str());
                         });
                     }else if(n == 0){
                         // 对端关闭
-                        std::cout << "connection close, fd = " << fd << std:: endl;
+                        LOG_INFO(("connection close, fd = " + std::to_string(fd)).c_str());
                         closeConnection(fd);
                     }else{
                         // n < 0 出错

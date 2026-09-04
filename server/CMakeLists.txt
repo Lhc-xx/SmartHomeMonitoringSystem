@@ -5,6 +5,9 @@ add_executable(smart_home_server
     src/main.cc # 主程序入口
     src/logger.cc # 日志模块
     src/config.cc # 配置模块
+    src/thread_pool.cc # 线程池模块
+    src/reactor.cc # 网络模块
+    src/connection.cc # 连接模块
 )
 
 target_link_libraries(smart_home_server PRIVATE smart_home_common log4cpp pthread)
