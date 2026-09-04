@@ -1,7 +1,10 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
-#include <string>
+#include "protocol/Protocol.h"
+
+#include <vector>
+#include <cstdint>
 #include <sys/types.h>
 
 namespace smart_home{
@@ -11,10 +14,11 @@ namespace smart_home{
         ~Connection();
         int fd() const; // 返回_fd对象
         ssize_t readData();
-        std::string &readBuffer();
+        std::vector<u_int8_t> &readBuffer();
+        bool readMessage(TlvMessage &msg); // 从话冲去拆出一个完整包
     private:
         int _fd; // 连接fd
-        std::string _readBuf; // 读缓冲区
+        std::vector<uint8_t> _readBuf; // 读缓冲区
         
     };
 } 

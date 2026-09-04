@@ -1,3 +1,6 @@
+#include <cstddef>
+#include <cstdint>
+#include <string>
 #include <sys/time.h> // struct timeval
 #include <cerrno>       
 #include <sys/socket.h>   // socket / connect / send / recv
@@ -8,6 +11,10 @@
 #include <cstring>        // strlen
 #include <cstdio>       
 #include <iostream>       // 打印
+#include <vector>
+
+#include "protocol/Protocol.h"     // TlvMessage / TlvProtocol / PROTOCOL_VERSION
+#include "protocol/MessageType.h"  // MessageType 枚举
 
 int main() {
     // 1.socket
@@ -45,17 +52,23 @@ int main() {
         SO_SNDTIMEO, &tv, sizeof(tv)); // 发超时
 
     // 3.send
-    const char* msg = "hello from linux client";
-    ssize_t s = send(sockfd, msg, strlen(msg), 0);
-    if (s < 0) {
-        perror("send");
-        close(sockfd);
-        return 1;
-    }
+    TlvMessage msg;
+    msg.type = static_cast<uint16_t>(MessageType::REGISTER_REQUEST); // 0x1001
+    msg.version = PROTOCOL_VERSION;
+    msg.requestId = 1;
+    std::string u = "lhc";
+    msg.value.assign(u.begin(), u.end());
+
+    auto packet = TlvProtocol::encode(msg); // 12 + 3 = 15字节
+
+    size_t half = packet.size() / 2; // 7字节
+    send(sockfd, packet.data(), half, 0);
+    sleep(1);
+    send(sockfd, packet.data() + half, packet.size() - half, 0); // 发后一半
 
     // 尝试收服务器响应
-    char buf[1024];
-    ssize_t n = recv(sockfd, buf, sizeof(buf), 0);
+    char rbuf[1024];
+    ssize_t n = recv(sockfd, rbuf, sizeof(rbuf), 0);
     if(n > 0){
         std::cout << "recv " << n << " bytes" << std::endl;
     } else if (n == 0) {
