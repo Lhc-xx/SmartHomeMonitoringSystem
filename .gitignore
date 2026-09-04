@@ -164,3 +164,7 @@ third_party/**/build/
 third_party/downloads/
 third_party/*.tar.*
 third_party/*.zip
+
+# 编译的测试程序
+thread_pool_test
+reactor_test

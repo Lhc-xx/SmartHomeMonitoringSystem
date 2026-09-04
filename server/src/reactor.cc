@@ -1,7 +1,10 @@
 #include "reactor.h"
+#include "connection.h"
 
 #include <cerrno>
+#include <string>
 #include <sys/epoll.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <iostream>
 
@@ -16,6 +19,7 @@ namespace smart_home {
     : _epFd(-1)
     , _listenFd(-1)
     , _runFlag(false)
+    , _pool(4, 10000) // 初始化线程池
     {
         _epFd = epoll_create1(0);
         if(_epFd < 0){
@@ -30,6 +34,11 @@ namespace smart_home {
         if(_epFd >= 0){
             close(_epFd);
         }
+
+        for(auto& kv: _conn){
+            delete kv.second;
+        }
+        _conn.clear();
     }
 
     bool Reactor::init(const std::string &ip, int port){
@@ -90,19 +99,59 @@ namespace smart_home {
                     if(connFd < 0){
                         continue;
                     }
+                    Connection * conn = new Connection(connFd);
+                    _conn[connFd] = conn; // 连接信息存入map
+                    struct epoll_event ev;
+                    ev.events = EPOLLIN; // 监视可读事件
+                    ev.data.fd = connFd;
+                    epoll_ctl(_epFd, EPOLL_CTL_ADD, connFd, &ev); // 注册进epoll
                     std::cout << "new connection, fd: " << connFd << std::endl;
-                    close(connFd);
 
                 }else{
                     // 已连接的fd  有读写/断开事件发生
+                    auto it = _conn.find(fd);
+                    if(it == _conn.end()){
+                        continue; // 未找到连接 跳过
+                    }
+                    Connection* conn = it->second;
+
+                    ssize_t n = conn->readData();
+                    if(n > 0){ // 有数据
+                        std::string data = conn->readBuffer();
+                        conn->readBuffer().clear();
+                        _pool.addTask([data](){
+                            std::cout << "recv " << data.size() << " bytes: "<< data << std:: endl;
+                        });
+                    }else if(n == 0){
+                        // 对端关闭
+                        std::cout << "connection close, fd = " << fd << std:: endl;
+                        closeConnection(fd);
+                    }else{
+                        // n < 0 出错
+                        if(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
+                            // 无数据 忽略
+                        }else{
+                            closeConnection(fd);
+                        }
+                    }
                 }
 
             }
         }
         
     }
+
     void Reactor::stop() {
         // close
         _runFlag = false;
+    }
+
+    void Reactor::closeConnection(int fd){
+        epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr); // 从epoll监视名单移除fd
+        auto it = _conn.find(fd);
+        if(it != _conn.end()){
+            delete it->second;
+            _conn.erase(it); // 从map中也会删除fd连接信息
+        }
     }
 }
