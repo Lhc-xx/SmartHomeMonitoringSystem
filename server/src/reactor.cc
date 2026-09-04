@@ -2,6 +2,7 @@
 #include "connection.h"
 #include "logger.h"
 #include "protocol/Protocol.h"
+#include "protocol/ErrorCode.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -124,6 +125,19 @@ namespace smart_home {
                         while (conn->readMessage(msg)) {
                             LOG_INFO(("recv tlv: type=" + std::to_string(msg.type)
                                     + " body_len=" + std::to_string(msg.value.size())).c_str());
+                            
+                            // 分发 + 回包
+                            TlvMessage resp;
+                            resp.type = msg.type + 1;
+                            resp.version = PROTOCOL_VERSION;
+                            resp.requestId = msg.requestId;
+
+                            int32_t code = htonl(static_cast<int32_t>(ErrorCode::SUCCESS));
+                            uint8_t *p = reinterpret_cast<uint8_t*>(&code);
+                            resp.value.assign(p, p + 4);
+
+                            auto respBuf = TlvProtocol::encode(resp);
+                            conn->sendData(respBuf);
                         }
                     }else if(n == 0){
                         // 对端关闭

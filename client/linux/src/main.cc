@@ -67,11 +67,21 @@ int main() {
     send(sockfd, packet.data() + half, packet.size() - half, 0); // 发后一半
 
     // 尝试收服务器响应
-    char rbuf[1024];
-    ssize_t n = recv(sockfd, rbuf, sizeof(rbuf), 0);
+    std::vector<uint8_t> rbuf(1024);
+    ssize_t n = recv(sockfd, rbuf.data(), rbuf.size(), 0);
     if(n > 0){
-        std::cout << "recv " << n << " bytes" << std::endl;
-    } else if (n == 0) {
+        rbuf.resize(n);
+        TlvMessage resp;
+        if(TlvProtocol::tryDecode(rbuf, resp)){
+            std::cout << "response type=" << resp.type << std::endl;   // 期望 4098
+            if(resp.value.size() >= 4){
+                int32_t code = 0;
+                memcpy(&code, resp.value.data(), 4);   // body 前 4 字节
+                code = ntohl(code);                    // 网络序转回主机序
+                std::cout << "error code=" << code << std::endl;        // 期望 0
+            }
+        }
+    }else if (n == 0) {
         std::cout << "server closed" << std::endl;
     } else {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {

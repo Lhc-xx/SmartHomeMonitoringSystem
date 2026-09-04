@@ -1,9 +1,11 @@
 #include "connection.h"
 #include "protocol/Protocol.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <cerrno>
 #include <iostream>
@@ -42,5 +44,9 @@ namespace smart_home{
 
     bool Connection::readMessage(TlvMessage &msg){
         return TlvProtocol::tryDecode(_readBuf, msg);
+    }
+
+    size_t Connection::sendData(const std::vector<uint8_t> &data){
+        return ::send(_fd, data.data(), data.size(), 0);
     }
 }
