@@ -10,7 +10,7 @@
 namespace smart_home {
     class Reactor{
     public:
-        Reactor();
+        Reactor(size_t thread_num = 4, size_t capacity = 10000);
         ~Reactor();
         bool init(const std::string& ip, int port); // 初始化epoll实例
         void run(); // 事件循环

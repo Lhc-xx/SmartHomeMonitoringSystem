@@ -1,12 +1,12 @@
 // ============================================================================
-// main.cc —— Server 启动入口（角色 A 负责）
+// main.cc —— Server 启动入口
 //
 // 启动流程：
 //   1. 确定配置文件路径（默认 server/conf/server.conf，可用命令行参数覆盖）
 //   2. 加载配置（加载失败就用默认值，不阻止启动）
 //   3. 确保日志目录存在 -> 初始化日志（之后所有输出都走 LOG_xxx 宏）
 //   4. 打印启动信息（把读到的配置回显出来，方便确认）
-//   5. （未来第 2 天：这里启动 Reactor + ThreadPool，开始监听端口）
+//   5. 启动 Reactor + ThreadPool，开始监听端口
 //   6. 优雅退出：释放日志单例
 // ============================================================================
 
@@ -18,6 +18,7 @@
 
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
+#include "reactor.h"    // 网络模块
 
 // ---------------------------------------------------------------------------
 // 确保日志文件的父目录存在。
@@ -75,9 +76,16 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("video path  : " + cfg.videoPath()).c_str());
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
 
-    // ---- 第 5 步：主循环占位 ----
-    // 第 2 天会在这里创建 Reactor + ThreadPool，开始 accept 客户端连接
-    LOG_INFO("server is running (skeleton)");
+    // ---- 第 5 步：创建 Reactor 并启动事件循环 ----
+    // 线程数 队列容量 读取配置
+    smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
+    if (!reactor.init(cfg.ip(), cfg.port())) {
+        LOG_ERROR("reactor init failed");
+        Logger::destroy();
+        return 1;
+    }
+    LOG_INFO(("reactor listening on " + cfg.ip() + ":" + std::to_string(cfg.port())).c_str());
+    reactor.run();   // 阻塞在事件循环，Ctrl+C 退出
 
     // ---- 第 6 步：优雅退出 ----
     // 真实服务器会在这里等待退出信号；现在直接走清理流程

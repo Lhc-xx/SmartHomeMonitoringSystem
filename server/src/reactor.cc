@@ -15,11 +15,11 @@
 
 
 namespace smart_home {
-    Reactor::Reactor()
+    Reactor::Reactor(size_t thread_num, size_t capacity)
     : _epFd(-1)
     , _listenFd(-1)
     , _runFlag(false)
-    , _pool(4, 10000) // 初始化线程池
+    , _pool(thread_num, capacity) // 初始化线程池
     {
         _epFd = epoll_create1(0);
         if(_epFd < 0){

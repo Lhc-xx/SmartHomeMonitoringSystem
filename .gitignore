@@ -168,3 +168,4 @@ third_party/*.zip
 # 编译的测试程序
 thread_pool_test
 reactor_test
+smart_home_server
