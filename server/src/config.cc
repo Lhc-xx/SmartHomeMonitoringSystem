@@ -93,5 +93,27 @@ namespace smart_home{
     std::string Config::logFile() const{
         return getString("log_file","./log/server.log");
     } 
+
+    //MySQL 配置
+    std::string Config::mysqlHost() const{
+        return getString("mysql_host", "127.0.0.1");
+    }
+
+    int Config::mysqlPort() const{
+        return getInt("mysql_port", 3306);
+    }
+
+    std::string Config::mysqlUser() const{
+        return getString("mysql_user", "");
+    }
+
+    std::string Config::mysqlPassword() const{
+        return getString("mysql_password","");
+    }
+
+    std::string Config::mysqlDatabase() const{
+        return getString("mysql_database","smarthome");
+    }
+    
     
 } // namespace smart_home
