@@ -1,8 +1,11 @@
 #include "reactor.h"
 #include "connection.h"
 #include "logger.h"
+#include "protocol/Protocol.h"
+#include "protocol/ErrorCode.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/types.h>
@@ -13,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cstring>
+#include <vector>
 
 
 namespace smart_home {
@@ -117,11 +121,24 @@ namespace smart_home {
 
                     ssize_t n = conn->readData();
                     if(n > 0){ // 有数据
-                        std::string data = conn->readBuffer();
-                        conn->readBuffer().clear();
-                        _pool.addTask([data](){
-                            LOG_INFO(("recv " + std::to_string(data.size()) + " bytes: " + data).c_str());
-                        });
+                        TlvMessage msg;
+                        while (conn->readMessage(msg)) {
+                            LOG_INFO(("recv tlv: type=" + std::to_string(msg.type)
+                                    + " body_len=" + std::to_string(msg.value.size())).c_str());
+                            
+                            // 分发 + 回包
+                            TlvMessage resp;
+                            resp.type = msg.type + 1;
+                            resp.version = PROTOCOL_VERSION;
+                            resp.requestId = msg.requestId;
+
+                            int32_t code = htonl(static_cast<int32_t>(ErrorCode::SUCCESS));
+                            uint8_t *p = reinterpret_cast<uint8_t*>(&code);
+                            resp.value.assign(p, p + 4);
+
+                            auto respBuf = TlvProtocol::encode(resp);
+                            conn->sendData(respBuf);
+                        }
                     }else if(n == 0){
                         // 对端关闭
                         LOG_INFO(("connection close, fd = " + std::to_string(fd)).c_str());

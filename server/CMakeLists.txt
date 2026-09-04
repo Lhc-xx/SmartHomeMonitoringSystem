@@ -147,3 +147,8 @@ target_include_directories(
 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# 可执行文件输出到项目根目录
+set_target_properties(smart_home_server PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
