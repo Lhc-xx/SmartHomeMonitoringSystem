@@ -10,6 +10,7 @@
 
 #include <cstdint>   // int64_t / uint8_t / uint32_t 等定宽整数类型
 #include <vector>    // std::vector：存放压缩数据
+#include <cstddef>   // size_t
 
 namespace smart_home {
 namespace protocol {
@@ -53,6 +54,32 @@ struct MediaPacket {
         flags = 0;
         data.clear();
     }
+};
+
+// ---------------------------------------------------------------------------
+// MediaPacketSerializer：把 MediaPacket 序列化成"带长度前缀的帧"，以及反序列化。
+// 服务端用 encode() 打包发送，Qt 端用 decode() 拆包还原。
+// ---------------------------------------------------------------------------
+class MediaPacketSerializer {
+public:
+    // 用 enum（编译期常量）代替 static const，避免 C++11 链接期未定义问题
+    enum : uint32_t { kMagic = 0x4D504B54 };   // 魔数，ASCII 为 "MPKT"
+    enum : uint8_t  { kVersion = 1 };          // 协议版本
+    enum : size_t   {
+        kFrameLengthSize = 4,   // 帧长前缀占 4 字节
+        kHeaderSize = 34,       // 帧长之后、负载之前的固定头字节数
+    };
+    enum : uint32_t { kMaxPayloadSize = 8u * 1024u * 1024u };  // 负载上限 8MB，防恶意包
+
+    // 序列化：把一个 MediaPacket 编码成完整帧，追加到 out 末尾。成功返回 true。
+    static bool encode(const MediaPacket &pkt, std::vector<uint8_t> &out);
+
+    // 反序列化：从一段字节解码一帧。返回本帧字节数；失败（魔数错/长度非法/数据不足）返回 0。
+    static size_t decode(const uint8_t *frame, size_t frameLen, MediaPacket &out);
+
+    // 只读开头 4 字节的帧长（第 4 步重组器用它找帧边界）。不足 4 字节或长度非法返回 false。
+    //返回false:不足4字节/帧长非法/（已有魔术字节）魔数不匹配
+    static bool peekFrameLength(const uint8_t *data, size_t len, uint32_t &frameLen);
 };
 
 }  // namespace protocol
