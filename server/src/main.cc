@@ -19,12 +19,11 @@
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
 #include "reactor.h"    // 网络模块
+#include "MySQLClient.h"
+#include "UserService.h"
+#include "AuthHandler.h"
 
-// ---------------------------------------------------------------------------
 // 确保日志文件的父目录存在。
-// 例：log_file = "./log/server.log" -> 创建 "./log" 目录。
-// 为什么需要：如果目录不存在，log4cpp 打不开日志文件，文件输出会失效。
-// ---------------------------------------------------------------------------
 static void ensureLogDir(const std::string &log_file) {
     // find_last_of 找最后一个 '/' 的位置；npos 表示没找到
     size_t pos = log_file.find_last_of('/');
@@ -76,9 +75,20 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("video path  : " + cfg.videoPath()).c_str());
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
 
+    // 创建数据库连接 + 用户业务 + 认证处理器 
+    smart_home::MySQLClient mysql;
+    if(!mysql.connect(cfg.mysqlHost(), cfg.mysqlUser(), cfg.mysqlPassword(),
+                      cfg.mysqlDatabase(), cfg.mysqlPort())){
+        LOG_ERROR(("mysql connect failed: " + mysql.lastError()).c_str());
+        // 连不上数据库时注册功能不可用，但服务器仍可启动
+    }
+    smart_home::UserService userService(mysql);
+    smart_home::AuthHandler authHandler(userService);
+
     // ---- 第 5 步：创建 Reactor 并启动事件循环 ----
     // 线程数 队列容量 读取配置
     smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
+    reactor.setAuthHandler(&authHandler); 
     if (!reactor.init(cfg.ip(), cfg.port())) {
         LOG_ERROR("reactor init failed");
         Logger::destroy();

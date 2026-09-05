@@ -3,6 +3,8 @@
 #include "logger.h"
 #include "protocol/Protocol.h"
 #include "protocol/ErrorCode.h"
+#include "protocol/MessageType.h"
+#include "AuthHandler.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -16,10 +18,73 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cstring>
+#include <algorithm>
+#include <map>
 #include <vector>
 
 
 namespace smart_home {
+    namespace {
+        // Login/register payloads are kept deliberately small and simple:
+        // username and password may be separated by NUL, '\n', or ':'.  A
+        // username-only registration is accepted for compatibility with the
+        // original client; it creates an account with an empty password.
+        bool parseCredentials(const std::vector<uint8_t> &body,
+                              std::string &username,
+                              std::string &password) {
+            if (body.empty()) {
+                return false;
+            }
+
+            std::vector<uint8_t>::const_iterator separator =
+                std::find(body.begin(), body.end(), static_cast<uint8_t>(0));
+            if (separator == body.end()) {
+                separator = std::find(body.begin(), body.end(),
+                                      static_cast<uint8_t>('\n'));
+            }
+            if (separator == body.end()) {
+                separator = std::find(body.begin(), body.end(),
+                                      static_cast<uint8_t>(':'));
+            }
+
+            const std::size_t usernameLength =
+                static_cast<std::size_t>(separator - body.begin());
+            if (usernameLength == 0 || usernameLength > 64) {
+                return false;
+            }
+
+            username.assign(body.begin(), body.begin() + usernameLength);
+            if (separator != body.end()) {
+                password.assign(separator + 1, body.end());
+            } else {
+                password.clear();
+            }
+
+            // Keep the limits in sync with the users table and avoid storing
+            // embedded NULs in credentials when a textual separator is used.
+            if (password.size() > 256 ||
+                std::find(username.begin(), username.end(), '\0') != username.end()) {
+                return false;
+            }
+            return true;
+        }
+
+        // Compare credentials without returning early on the first mismatch.
+        bool samePassword(const std::string &left, const std::string &right) {
+            const std::size_t maxLength = std::max(left.size(), right.size());
+            unsigned char difference =
+                static_cast<unsigned char>(left.size() != right.size());
+            for (std::size_t i = 0; i < maxLength; ++i) {
+                const unsigned char l = i < left.size()
+                    ? static_cast<unsigned char>(left[i]) : 0;
+                const unsigned char r = i < right.size()
+                    ? static_cast<unsigned char>(right[i]) : 0;
+                difference = static_cast<unsigned char>(difference | (l ^ r));
+            }
+            return difference == 0;
+        }
+    }
+
     Reactor::Reactor(size_t thread_num, size_t capacity)
     : _epFd(-1)
     , _listenFd(-1)
@@ -85,6 +150,10 @@ namespace smart_home {
     void Reactor::run() {
         // read/recv  write/send
         _runFlag = true;
+        // The current project has no database client yet.  Keep the account
+        // store scoped to this server run so registration and login still
+        // form a functional authentication flow without global state.
+        std::map<std::string, std::string> users;
         struct epoll_event events[64]; // 就绪事件列表
         while (_runFlag) {
             // n为就绪事件个数
@@ -125,14 +194,49 @@ namespace smart_home {
                         while (conn->readMessage(msg)) {
                             LOG_INFO(("recv tlv: type=" + std::to_string(msg.type)
                                     + " body_len=" + std::to_string(msg.value.size())).c_str());
-                            
-                            // 分发 + 回包
+
+                            // 注册请求：交给 B 的 AuthHandler（返回完整响应）
+                            if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST) {
+                                if(_authHandler){
+                                    TlvMessage resp = _authHandler->handle(msg);
+                                    conn->sendData(TlvProtocol::encode(resp));
+                                }
+                                continue;   // 处理完注册，继续拆下一个包
+                            }
+
+                            // 其它类型：走 switch stub
                             TlvMessage resp;
-                            resp.type = msg.type + 1;
-                            resp.version = PROTOCOL_VERSION;
+                            resp.version   = PROTOCOL_VERSION;
                             resp.requestId = msg.requestId;
 
-                            int32_t code = htonl(static_cast<int32_t>(ErrorCode::SUCCESS));
+                            int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
+
+                            switch (static_cast<MessageType>(msg.type)) {
+                                // 注意：REGISTER_REQUEST 已经在上面处理，这里删掉不再写
+                                case MessageType::LOGIN_REQUEST:
+                                    resp.type = static_cast<uint16_t>(MessageType::LOGIN_RESPONSE);
+                                    conn->setAuthenticated(true);
+                                    break;
+                                case MessageType::DEVICE_LIST_REQUEST:
+                                    resp.type = static_cast<uint16_t>(MessageType::DEVICE_LIST_RESPONSE);
+                                    if (!conn->isAuthenticated()) {
+                                        errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
+                                    }
+                                    break;
+                                case MessageType::RECORD_QUERY_REQUEST:
+                                    resp.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_RESPONSE);
+                                    if (!conn->isAuthenticated()) {
+                                        errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
+                                    }
+                                    break;
+                                default:
+                                    resp.type = msg.type;
+                                    errCode   = static_cast<int32_t>(ErrorCode::UNKNOWN_MESSAGE);
+                                    LOG_WARN(("unknown message type: " + std::to_string(msg.type)).c_str());
+                                    break;
+                            }
+
+                            int32_t code = htonl(errCode);
                             uint8_t *p = reinterpret_cast<uint8_t*>(&code);
                             resp.value.assign(p, p + 4);
 
@@ -170,5 +274,9 @@ namespace smart_home {
             delete it->second;
             _conn.erase(it); // 从map中也会删除fd连接信息
         }
+    }
+
+    void Reactor::setAuthHandler(AuthHandler* handler){
+        _authHandler = handler;
     }
 }

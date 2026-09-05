@@ -8,6 +8,7 @@
 #include <map>
 
 namespace smart_home {
+    class AuthHandler;
     class Reactor{
     public:
         Reactor(size_t thread_num = 4, size_t capacity = 10000);
@@ -15,9 +16,11 @@ namespace smart_home {
         bool init(const std::string& ip, int port); // 初始化epoll实例
         void run(); // 事件循环
         void stop(); //退出事件循环
+        void setAuthHandler(AuthHandler* handler);
 
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
+        AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
 
     private:
         int _epFd; // epoll 实例fd

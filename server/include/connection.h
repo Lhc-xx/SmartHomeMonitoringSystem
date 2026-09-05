@@ -18,7 +18,12 @@ namespace smart_home{
         std::vector<uint8_t> &readBuffer();
         bool readMessage(TlvMessage &msg); // 从话冲去拆出一个完整包
         size_t sendData(const std::vector<uint8_t> &data); // 发送数据
+        bool isAuthenticated() const;      // 是否已登录
+        void setAuthenticated(bool v);     // 设置登录状态
 
+    private:
+        bool _authenticated = false;       // 默认未登录
+    
     private:
         int _fd; // 连接fd
         std::vector<uint8_t> _readBuf; // 读缓冲区

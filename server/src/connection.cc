@@ -49,4 +49,12 @@ namespace smart_home{
     size_t Connection::sendData(const std::vector<uint8_t> &data){
         return ::send(_fd, data.data(), data.size(), 0);
     }
+
+    bool Connection::isAuthenticated() const{
+        return _authenticated;
+    }
+
+    void Connection::setAuthenticated(bool v){
+        _authenticated = v;
+    }
 }
