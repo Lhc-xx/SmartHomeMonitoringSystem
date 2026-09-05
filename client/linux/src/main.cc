@@ -85,7 +85,7 @@ int main() {
     regReq.requestId = 1;
 
     // 用 B 的 AuthProtocol 把用户名/密码封进 body
-    std::string username = "lhc";
+    std::string username = "abc";
     std::string password = "123456";
     AuthProtocol::encodeRegisterRequest(username, password, regReq.value);
 

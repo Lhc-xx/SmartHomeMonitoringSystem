@@ -104,11 +104,6 @@ namespace smart_home {
         if(_epFd >= 0){
             close(_epFd);
         }
-
-        for(auto& kv: _conn){
-            delete kv.second;
-        }
-        _conn.clear();
     }
 
     bool Reactor::init(const std::string &ip, int port){
@@ -173,7 +168,7 @@ namespace smart_home {
                     if(connFd < 0){
                         continue;
                     }
-                    Connection * conn = new Connection(connFd);
+                    auto conn = std::make_shared<Connection>(connFd);
                     _conn[connFd] = conn; // 连接信息存入map
                     struct epoll_event ev;
                     ev.events = EPOLLIN; // 监视可读事件
@@ -186,7 +181,7 @@ namespace smart_home {
                     if(it == _conn.end()){
                         continue; // 未找到连接 跳过
                     }
-                    Connection* conn = it->second;
+                    auto conn = it->second;
 
                     ssize_t n = conn->readData();
                     if(n > 0){ // 有数据
@@ -195,53 +190,9 @@ namespace smart_home {
                             LOG_INFO(("recv tlv: type=" + std::to_string(msg.type)
                                     + " body_len=" + std::to_string(msg.value.size())).c_str());
 
-                            // 注册请求：交给 B 的 AuthHandler（返回完整响应）
-                            if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST) {
-                                if(_authHandler){
-                                    TlvMessage resp = _authHandler->handle(msg);
-                                    conn->sendData(TlvProtocol::encode(resp));
-                                }
-                                continue;   // 处理完注册，继续拆下一个包
-                            }
-
-                            // 其它类型：走 switch stub
-                            TlvMessage resp;
-                            resp.version   = PROTOCOL_VERSION;
-                            resp.requestId = msg.requestId;
-
-                            int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
-
-                            switch (static_cast<MessageType>(msg.type)) {
-                                // 注意：REGISTER_REQUEST 已经在上面处理，这里删掉不再写
-                                case MessageType::LOGIN_REQUEST:
-                                    resp.type = static_cast<uint16_t>(MessageType::LOGIN_RESPONSE);
-                                    conn->setAuthenticated(true);
-                                    break;
-                                case MessageType::DEVICE_LIST_REQUEST:
-                                    resp.type = static_cast<uint16_t>(MessageType::DEVICE_LIST_RESPONSE);
-                                    if (!conn->isAuthenticated()) {
-                                        errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
-                                    }
-                                    break;
-                                case MessageType::RECORD_QUERY_REQUEST:
-                                    resp.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_RESPONSE);
-                                    if (!conn->isAuthenticated()) {
-                                        errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
-                                    }
-                                    break;
-                                default:
-                                    resp.type = msg.type;
-                                    errCode   = static_cast<int32_t>(ErrorCode::UNKNOWN_MESSAGE);
-                                    LOG_WARN(("unknown message type: " + std::to_string(msg.type)).c_str());
-                                    break;
-                            }
-
-                            int32_t code = htonl(errCode);
-                            uint8_t *p = reinterpret_cast<uint8_t*>(&code);
-                            resp.value.assign(p, p + 4);
-
-                            auto respBuf = TlvProtocol::encode(resp);
-                            conn->sendData(respBuf);
+                            _pool.addTask([this, conn, msg](){
+                                handleMessage(conn, msg);
+                            });
                         }
                     }else if(n == 0){
                         // 对端关闭
@@ -271,12 +222,59 @@ namespace smart_home {
         epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr); // 从epoll监视名单移除fd
         auto it = _conn.find(fd);
         if(it != _conn.end()){
-            delete it->second;
             _conn.erase(it); // 从map中也会删除fd连接信息
         }
     }
 
     void Reactor::setAuthHandler(AuthHandler* handler){
         _authHandler = handler;
+    }
+
+    void Reactor::handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg){
+        // 注册请求：交给 B 的 AuthHandler
+        if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST) {
+            if(_authHandler){
+                TlvMessage resp = _authHandler->handle(msg);
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 其它类型：switch stub
+        TlvMessage resp;
+        resp.version   = PROTOCOL_VERSION;
+        resp.requestId = msg.requestId;
+
+        int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
+
+        switch (static_cast<MessageType>(msg.type)) {
+            case MessageType::LOGIN_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::LOGIN_RESPONSE);
+                conn->setAuthenticated(true);
+                break;
+            case MessageType::DEVICE_LIST_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::DEVICE_LIST_RESPONSE);
+                if (!conn->isAuthenticated()) {
+                    errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
+                }
+                break;
+            case MessageType::RECORD_QUERY_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_RESPONSE);
+                if (!conn->isAuthenticated()) {
+                    errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
+                }
+                break;
+            default:
+                resp.type = msg.type;
+                errCode   = static_cast<int32_t>(ErrorCode::UNKNOWN_MESSAGE);
+                LOG_WARN(("unknown message type: " + std::to_string(msg.type)).c_str());
+                break;
+        }
+
+        int32_t code = htonl(errCode);
+        uint8_t *p = reinterpret_cast<uint8_t*>(&code);
+        resp.value.assign(p, p + 4);
+
+        conn->sendData(TlvProtocol::encode(resp));
     }
 }

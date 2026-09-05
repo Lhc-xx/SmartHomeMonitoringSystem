@@ -7,6 +7,8 @@
 #include <vector>
 #include <cstdint>
 #include <sys/types.h>
+#include <mutex>
+#include <atomic>
 
 namespace smart_home{
     class Connection{
@@ -22,11 +24,12 @@ namespace smart_home{
         void setAuthenticated(bool v);     // 设置登录状态
 
     private:
-        bool _authenticated = false;       // 默认未登录
+        std::atomic<bool> _authenticated{false};       // 默认未登录
     
     private:
         int _fd; // 连接fd
         std::vector<uint8_t> _readBuf; // 读缓冲区
+        std::mutex _sendMutex;   // 保护 sendData 的并发写
         
     };
 } 

@@ -6,6 +6,7 @@
 
 #include <string>
 #include <map>
+#include <memory>
 
 namespace smart_home {
     class AuthHandler;
@@ -21,12 +22,13 @@ namespace smart_home {
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
+         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
 
     private:
         int _epFd; // epoll 实例fd
         int _listenFd; // 监听的fd
         bool _runFlag; // 运行标志
-        std::map<int, Connection*> _conn; // 连接对象
+        std::map<int, std::shared_ptr<Connection>> _conn; // 连接对象
         ThreadPool _pool; // 线程池, 分发任务
    }; 
 }

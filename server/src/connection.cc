@@ -47,14 +47,15 @@ namespace smart_home{
     }
 
     size_t Connection::sendData(const std::vector<uint8_t> &data){
+        std::lock_guard<std::mutex> guard(_sendMutex);
         return ::send(_fd, data.data(), data.size(), 0);
     }
 
     bool Connection::isAuthenticated() const{
-        return _authenticated;
+        return _authenticated.load(); // 原子读
     }
 
     void Connection::setAuthenticated(bool v){
-        _authenticated = v;
+        _authenticated.store(v); // 原子写
     }
 }
