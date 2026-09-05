@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Keep the compiler command line available to clangd/VS Code.  Without this
+# database the language server falls back to a bare compiler invocation and
+# cannot see target-specific include directories such as server/include.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 option(BUILD_SERVER "Build server target" ON)
 option(BUILD_LINUX_CLIENT "Build Linux C++ client placeholder" ON)
 option(BUILD_QT_CLIENT "Build Qt client placeholder" OFF)
