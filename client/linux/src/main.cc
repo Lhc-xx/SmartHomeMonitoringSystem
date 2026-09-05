@@ -17,30 +17,7 @@
 #include "protocol/MessageType.h"  // MessageType 枚举
 #include "protocol/AuthProtocol.h"   // ← B 的认证协议（封包/解包）
 #include "protocol/ErrorCode.h"      // ← 错误码枚举
-
-// 发送一个请求，接收并解析响应。成功返回 true。
-bool sendRequest(int sockfd, const TlvMessage &req, TlvMessage &resp){
-    auto buf = TlvProtocol::encode(req);
-    send(sockfd, buf.data(), buf.size(), 0);
-
-    std::vector<uint8_t> rbuf(1024);
-    ssize_t n = recv(sockfd, rbuf.data(), rbuf.size(), 0);
-    if(n <= 0){
-        return false;
-    }
-    rbuf.resize(n);
-    return TlvProtocol::tryDecode(rbuf, resp);
-}
-
-// 从响应 body 前 4 字节读错误码（网络序转主机序）
-int32_t readErrorCode(const TlvMessage &resp){
-    int32_t code = 0;
-    if(resp.value.size() >= 4){
-        memcpy(&code, resp.value.data(), 4);
-        code = ntohl(code);
-    }
-    return code;
-}
+#include "protocol/media_packet.h"   // MediaPacket / MediaPacketSerializer
 
 int main() {
     // 1.socket
@@ -79,25 +56,62 @@ int main() {
 
     // 3.send
     // 注册请求
-    TlvMessage regReq;
-    regReq.type    = static_cast<uint16_t>(MessageType::REGISTER_REQUEST); // 0x1001
-    regReq.version = PROTOCOL_VERSION;
-    regReq.requestId = 1;
+        // ---- 请求推流 ----
+    TlvMessage req;
+    req.type    = static_cast<uint16_t>(MessageType::STREAM_START_REQUEST); // 0x1401
+    req.version = PROTOCOL_VERSION;
+    req.requestId = 1;
 
-    // 用 B 的 AuthProtocol 把用户名/密码封进 body
-    std::string username = "abc";
-    std::string password = "123456";
-    AuthProtocol::encodeRegisterRequest(username, password, regReq.value);
+    auto reqBuf = TlvProtocol::encode(req);
+    send(sockfd, reqBuf.data(), reqBuf.size(), 0);
 
-    TlvMessage regResp;
-    if(sendRequest(sockfd, regReq, regResp)){
-        ErrorCode code = ErrorCode::INTERNAL_ERROR;
-        AuthProtocol::decodeRegisterResponse(regResp.value, code);
-        std::cout << "register: type=" << regResp.type
-                  << " error=" << static_cast<int32_t>(code) << std::endl;
-    }else{
-        std::cout << "register failed (no response)" << std::endl;
+    // ---- 接收：先解析响应，再统计媒体帧 ----
+    std::vector<uint8_t> buf;
+    bool gotResp = false;
+    int frames = 0;
+
+    while(frames < 20){
+        char tmp[4096];
+        ssize_t n = recv(sockfd, tmp, sizeof(tmp), 0);
+        if(n <= 0){
+            break;   // 超时或断开
+        }
+        buf.insert(buf.end(), tmp, tmp + n);
+
+        // 先尝试解析 TLV 响应（可能和媒体帧混在一起）
+        if(!gotResp){
+            std::vector<uint8_t> work = buf;
+            TlvMessage resp;
+            if(TlvProtocol::tryDecode(work, resp)){
+                gotResp = true;
+                std::cout << "stream start resp: type=" << resp.type << std::endl;
+                buf.swap(work);
+            }
+        }
+
+        // 再拆媒体帧
+        while(true){
+            uint32_t fl = 0;
+            if(!smart_home::protocol::MediaPacketSerializer::peekFrameLength(buf.data(), buf.size(), fl)){
+                break;
+            }
+            if(buf.size() < fl){
+                break;
+            }
+            smart_home::protocol::MediaPacket pkt;
+            if(smart_home::protocol::MediaPacketSerializer::decode(buf.data(), fl, pkt) == 0){
+                break;
+            }
+            frames++;
+            if(frames <= 3){
+                std::cout << "frame " << frames << ": pts=" << pkt.pts
+                          << " size=" << pkt.data.size()
+                          << (pkt.isKeyFrame() ? " [KEY]" : "") << std::endl;
+            }
+            buf.erase(buf.begin(), buf.begin() + fl);
+        }
     }
+    std::cout << "received " << frames << " media frames" << std::endl;
     
     // 4.close
     close(sockfd);

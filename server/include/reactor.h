@@ -7,9 +7,11 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <mutex>
 
 namespace smart_home {
     class AuthHandler;
+    class StreamSession; // 流会话存储
     class Reactor{
     public:
         Reactor(size_t thread_num = 4, size_t capacity = 10000);
@@ -22,6 +24,8 @@ namespace smart_home {
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
+        std::map<int, std::shared_ptr<StreamSession>> _streams;   // fd -> 流会话
+        std::mutex _streamsMutex;                                 // 保护 _streams
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
         void checkIdleConnections();   // 扫描并回收空闲连接
 

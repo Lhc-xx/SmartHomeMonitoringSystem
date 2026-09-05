@@ -5,6 +5,8 @@
 #include "protocol/ErrorCode.h"
 #include "protocol/MessageType.h"
 #include "AuthHandler.h"
+#include "stream_session.h"
+#include "media/mock_media_source.h"
 
 #include <cerrno>
 #include <cstdint>
@@ -225,10 +227,21 @@ namespace smart_home {
     }
 
     void Reactor::closeConnection(int fd){
-        epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr); // 从epoll监视名单移除fd
+        epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr);
+
+        // 停止并回收该连接的流会话
+        {
+            std::lock_guard<std::mutex> guard(_streamsMutex);
+            auto it = _streams.find(fd);
+            if(it != _streams.end()){
+                it->second->stop();
+                _streams.erase(it);
+            }
+        }
+
         auto it = _conn.find(fd);
         if(it != _conn.end()){
-            _conn.erase(it); // 从map中也会删除fd连接信息
+            _conn.erase(it);
         }
     }
 
@@ -282,6 +295,30 @@ namespace smart_home {
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_RESPONSE);
                 if (!conn->isAuthenticated()) {
                     errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
+                }
+                break;
+                        case MessageType::STREAM_START_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
+                {
+                    // 创建假媒体源 + 流会话，启动并保存
+                    std::unique_ptr<media::MockMediaSource> source(new media::MockMediaSource());
+                    source->open("mock://test");
+                    auto session = std::make_shared<StreamSession>(conn, std::move(source));
+                    session->start();
+                    std::lock_guard<std::mutex> guard(_streamsMutex);
+                    _streams[conn->fd()] = session;
+                }
+                break;
+
+            case MessageType::STREAM_STOP_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::STREAM_STOP_RESPONSE);
+                {
+                    std::lock_guard<std::mutex> guard(_streamsMutex);
+                    auto it = _streams.find(conn->fd());
+                    if(it != _streams.end()){
+                        it->second->stop();
+                        _streams.erase(it);
+                    }
                 }
                 break;
             default:

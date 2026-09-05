@@ -9,6 +9,9 @@ add_executable(smart_home_server
     src/thread_pool.cc # 线程池模块
     src/reactor.cc # 网络模块
     src/connection.cc # 连接模块
+    src/stream_session.cc #流会话模块
+
+    src/media/mock_media_source.cc # 假媒体源（测试用，不依赖 FFmpeg）
 
     # --------------------------------------------------------
     # A：服务器启动入口
