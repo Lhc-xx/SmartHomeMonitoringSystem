@@ -8,7 +8,7 @@
 - 一个最小可运行的 `Test` 测试类；
 - 脱敏配置示例、数据库脚本占位和协作文档入口。
 
-当前不包含真实网络、MySQL、FFmpeg、Qt 界面或摄像头业务代码。后续开发请在对应模块目录中增量实现，避免把业务代码全部堆在根目录。
+网络层（Reactor + ThreadPool）已完成，MySQL / FFmpeg / Qt 界面待实现
 
 ## 目录结构
 
@@ -71,6 +71,18 @@ ctest --test-dir build --output-on-failure
 
 ```bash
 ./build/server/tests/server_test
+```
+
+运行服务器：
+
+```bash
+./build/server/smart_home_server
+```
+
+运行 Linux 客户端（另开一个终端）：
+
+```bash
+./build/client/linux/smart_home_linux_client
 ```
 
 Windows 下生成器不同，运行目标可能位于 `build/Debug/` 或 `build/Release/`。

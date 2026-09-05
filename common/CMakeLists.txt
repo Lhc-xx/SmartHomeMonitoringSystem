@@ -3,6 +3,15 @@ project(common LANGUAGES CXX)
 
 add_library(smart_home_common STATIC
     src/common_placeholder.cc
+
+    # 协议实现
+    src/Protocol.cc
+
+    # 认证业务 value 编解码实现。
+    # Server 的 AuthHandler 通过 smart_home_common 复用该实现，
+    # 不在 Server target 中重复编译公共协议源码。
+    src/AuthProtocol.cc
+
 )
 
 target_include_directories(smart_home_common PUBLIC
