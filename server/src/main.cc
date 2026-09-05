@@ -6,7 +6,7 @@
 //   2. 加载配置（加载失败就用默认值，不阻止启动）
 //   3. 确保日志目录存在 -> 初始化日志（之后所有输出都走 LOG_xxx 宏）
 //   4. 打印启动信息（把读到的配置回显出来，方便确认）
-//   5. （未来第 2 天：这里启动 Reactor + ThreadPool，开始监听端口）
+//   5. 这里启动 Reactor + ThreadPool，开始监听端口
 //   6. 优雅退出：释放日志单例
 // ============================================================================
 
@@ -18,12 +18,12 @@
 
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
+#include "reactor.h"    // 网络模块
+#include "MySQLClient.h"
+#include "UserService.h"
+#include "AuthHandler.h"
 
-// ---------------------------------------------------------------------------
 // 确保日志文件的父目录存在。
-// 例：log_file = "./log/server.log" -> 创建 "./log" 目录。
-// 为什么需要：如果目录不存在，log4cpp 打不开日志文件，文件输出会失效。
-// ---------------------------------------------------------------------------
 static void ensureLogDir(const std::string &log_file) {
     // find_last_of 找最后一个 '/' 的位置；npos 表示没找到
     size_t pos = log_file.find_last_of('/');
@@ -75,9 +75,27 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("video path  : " + cfg.videoPath()).c_str());
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
 
-    // ---- 第 5 步：主循环占位 ----
-    // 第 2 天会在这里创建 Reactor + ThreadPool，开始 accept 客户端连接
-    LOG_INFO("server is running (skeleton)");
+    // 创建数据库连接 + 用户业务 + 认证处理器 
+    smart_home::MySQLClient mysql;
+    if(!mysql.connect(cfg.mysqlHost(), cfg.mysqlUser(), cfg.mysqlPassword(),
+                      cfg.mysqlDatabase(), cfg.mysqlPort())){
+        LOG_ERROR(("mysql connect failed: " + mysql.lastError()).c_str());
+        // 连不上数据库时注册功能不可用，但服务器仍可启动
+    }
+    smart_home::UserService userService(mysql);
+    smart_home::AuthHandler authHandler(userService);
+
+    // ---- 第 5 步：创建 Reactor 并启动事件循环 ----
+    // 线程数 队列容量 读取配置
+    smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
+    reactor.setAuthHandler(&authHandler); 
+    if (!reactor.init(cfg.ip(), cfg.port())) {
+        LOG_ERROR("reactor init failed");
+        Logger::destroy();
+        return 1;
+    }
+    LOG_INFO(("reactor listening on " + cfg.ip() + ":" + std::to_string(cfg.port())).c_str());
+    reactor.run();   // 阻塞在事件循环，Ctrl+C 退出
 
     // ---- 第 6 步：优雅退出 ----
     // 真实服务器会在这里等待退出信号；现在直接走清理流程
