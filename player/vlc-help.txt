@@ -1,0 +1,7 @@
+﻿VLC version 3.0.8 Vetinari (3.0.8-0-gf350b6b5a7)
+Compiled by jenkins on 8a458393186d (Aug 14 2019 16:47:39)
+Compiler: gcc version 6.4.0 (GCC)
+This program comes with NO WARRANTY, to the extent permitted by law.
+You may redistribute it under the terms of the GNU General Public License;
+see the file named COPYING for details.
+Written by the VideoLAN team; see the AUTHORS file.
