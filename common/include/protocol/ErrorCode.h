@@ -35,6 +35,7 @@ enum class ErrorCode : int32_t{
 
     //服务器内部错误
     INTERNAL_ERROR      = 9000
+    
 };
 
 #endif

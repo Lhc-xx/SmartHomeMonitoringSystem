@@ -53,4 +53,5 @@ public:
   static bool tryDecode(std::vector<uint8_t> &buffer, TlvMessage &message);
 };
 
+
 #endif
