@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -14,6 +15,7 @@
 namespace smart_home{
     Connection::Connection(int fd)
     : _fd(fd)
+    , _lastActive(time(nullptr))
     {
 
     }
@@ -34,6 +36,7 @@ namespace smart_home{
         ssize_t n = ::read(_fd, buf, sizeof(buf)); // 从socket读
         if(n > 0){
             _readBuf.insert(_readBuf.end(), buf, buf + n);
+            updateLastActive();   // 有数据就刷新
         }
         return n; // >0 正常数据; 0 对端关闭; -1出错或暂时无数据
     }
@@ -57,5 +60,13 @@ namespace smart_home{
 
     void Connection::setAuthenticated(bool v){
         _authenticated.store(v); // 原子写
+    }
+
+    void Connection::updateLastActive(){
+        _lastActive = time(nullptr);
+    }
+
+    time_t Connection::lastActive() const{
+        return _lastActive;
     }
 }

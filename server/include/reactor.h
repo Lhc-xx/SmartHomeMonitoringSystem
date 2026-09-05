@@ -22,7 +22,8 @@ namespace smart_home {
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
-         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
+        void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
+        void checkIdleConnections();   // 扫描并回收空闲连接
 
     private:
         int _epFd; // epoll 实例fd

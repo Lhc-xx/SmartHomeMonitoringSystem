@@ -22,6 +22,8 @@
 #include <map>
 #include <vector>
 
+// 会话空闲超时（秒）：连接超过 N 秒没收到数据就回收
+static const int IDLE_TIMEOUT_SECONDS = 60;
 
 namespace smart_home {
     namespace {
@@ -152,12 +154,16 @@ namespace smart_home {
         struct epoll_event events[64]; // 就绪事件列表
         while (_runFlag) {
             // n为就绪事件个数
-            int n = epoll_wait(_epFd, events, 64, -1);
+            int n = epoll_wait(_epFd, events, 64, 1000); // 1s超时
             if(n < 0 && errno == EINTR){
                 continue; // 信号被中断打断  继续
             }
             if(n < 0){
                 break;
+            }
+            if(n == 0){   // 超时唤醒，没有就绪事件，扫描空闲连接
+                checkIdleConnections();
+                continue;
             }
             // 正常
             for(int i = 0; i < n; ++i){
@@ -223,6 +229,20 @@ namespace smart_home {
         auto it = _conn.find(fd);
         if(it != _conn.end()){
             _conn.erase(it); // 从map中也会删除fd连接信息
+        }
+    }
+
+    void Reactor::checkIdleConnections(){
+        time_t now = time(nullptr);
+        std::vector<int> idleFds;
+        for(auto &kv : _conn){
+            if(now - kv.second->lastActive() >= IDLE_TIMEOUT_SECONDS){
+                idleFds.push_back(kv.first);
+            }
+        }
+        for(int fd : idleFds){
+            LOG_INFO(("idle timeout, close fd=" + std::to_string(fd)).c_str());
+            closeConnection(fd);
         }
     }
 
