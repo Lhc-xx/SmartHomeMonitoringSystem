@@ -1,49 +1,28 @@
 #ifndef AUTH_HANDLER_H
 #define AUTH_HANDLER_H
 
-#include "protocol/Protocol.h"
 #include "UserService.h"
+#include "protocol/Protocol.h"
 
 namespace smart_home {
 
 /*
- * AuthHandler
- *
- * Server 认证消息的业务处理层。
- *
- * 它只负责连接“TLV 消息边界”与“UserService 业务层”：
- *
- * REGISTER_REQUEST TlvMessage
- *     -> AuthProtocol 解码 value
- *     -> UserService::registerUser()
- *     -> AuthProtocol 编码 ErrorCode
- *     -> REGISTER_RESPONSE TlvMessage
- *
- * AuthHandler 不拥有 UserService，也不直接访问数据库；这样数据库和
- * 用户业务规则仍集中在既有 UserService 中。
+ * AuthHandler 负责把认证 TLV 请求转换为 UserService 调用，再把业务结果编码为响应。
+ * 该类不拥有数据库连接，也不参与 A 成员的连接生命周期和消息分发实现。
  */
 class AuthHandler {
 public:
-    /*
-     * 注入已经创建好的用户业务服务。
-     *
-     * 引用明确表达 AuthHandler 只借用服务，生命周期由服务器启动层管理。
-     */
+    /* 注入已连接的业务服务，便于启动层统一管理资源生命周期。 */
     explicit AuthHandler(UserService &service);
 
-    /*
-     * 根据请求消息类型处理认证业务，并始终构造一个对应的响应消息。
-     */
+    /* 根据消息类型处理注册或登录，始终保留原 requestId。 */
     TlvMessage handle(const TlvMessage &request);
 
 private:
-    /*
-     * 处理 REGISTER_REQUEST：解析认证 value、调用注册业务，并将结果
-     * 编码为 REGISTER_RESPONSE。
-     */
+    /* 分别处理两种认证请求，避免响应类型混用。 */
     TlvMessage handleRegister(const TlvMessage &request);
+    TlvMessage handleLogin(const TlvMessage &request);
 
-    /* AuthHandler 不拥有该对象，只负责通过它执行用户注册业务。 */
     UserService &_service;
 };
 
