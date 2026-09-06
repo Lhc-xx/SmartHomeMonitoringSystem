@@ -40,8 +40,8 @@ QByteArray loginResponse()
 QByteArray deviceListResponse()
 {
     return QByteArray::fromHex(
-        "1202000100000021000000130000000000010000000000000007"
-        "00064c6976696e6700056c6967687400026f6e");
+        "1202000100000025000000130000000000010000000000000007"
+        "00064c6976696e6700056c6967687400066f6e6c696e65");
 }
 
 /* 构造一条录像列表响应：一个录像元数据条目，不含任何视频字节。 */
@@ -96,7 +96,7 @@ int main()
                         && deviceResult.devices.at(0).id == 7
                         && deviceResult.devices.at(0).name == QStringLiteral("Living")
                         && deviceResult.devices.at(0).type == QStringLiteral("light")
-                        && deviceResult.devices.at(0).status == QStringLiteral("on"),
+                        && deviceResult.devices.at(0).status == QStringLiteral("online"),
                     QStringLiteral("设备列表响应未正确解析"))) {
         return 1;
     }

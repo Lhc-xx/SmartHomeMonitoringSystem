@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS devices (
     device_code VARCHAR(128) NULL COMMENT 'legacy device code',
     stream_url VARCHAR(512) NULL COMMENT 'legacy stream url',
     device_type VARCHAR(64) NOT NULL DEFAULT 'unknown' COMMENT 'device type',
-    status INT NOT NULL DEFAULT 0 COMMENT '0 means offline',
+    status INT NOT NULL DEFAULT 0 COMMENT '0 means offline, 1 means online',
     created_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'creation time',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'legacy creation field',
     PRIMARY KEY (id),

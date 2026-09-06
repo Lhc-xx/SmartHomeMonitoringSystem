@@ -15,6 +15,7 @@ struct DeviceInfo {
   uint64_t id = 0U;
   std::string deviceName;
   std::string deviceType;
+  /* 协议层固定使用 "online"/"offline"，不暴露数据库内部的整数状态。 */
   std::string status;
 };
 

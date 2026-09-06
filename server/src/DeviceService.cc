@@ -34,7 +34,13 @@ bool DeviceService::listByUser(uint64_t userId,
         item.id = static_cast<uint64_t>(std::strtoull(row[0], nullptr, 10));
         item.deviceName = row[1];
         item.deviceType = row[2];
-        item.status = row[3];
+        /*
+         * devices.status 在数据库中使用 INT，便于索引、统计并兼容现有写入代码；
+         * TLV 协议对外使用可读字符串，因此必须在业务边界完成语义转换，不能把
+         * MySQL 返回的 "0"/"1" 直接泄漏给 Qt。约定仅 1 表示在线，其余值按
+         * 离线处理，可避免异常历史值被错误展示为在线。
+         */
+        item.status = std::string(row[3]) == "1" ? "online" : "offline";
         devices.push_back(item);
     }
     mysql_free_result(result);

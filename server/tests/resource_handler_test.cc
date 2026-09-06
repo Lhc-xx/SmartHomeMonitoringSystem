@@ -165,7 +165,9 @@ int main() {
                           response.requestId == request.requestId &&
                           DeviceProtocol::decodeDeviceListResponse(response.value, code, devices) &&
                           code == ErrorCode::SUCCESS && devices.size() == 1U &&
-                          devices[0].id == deviceId;
+                          devices[0].id == deviceId &&
+                          /* 数据库存储整数状态，但协议边界必须返回稳定、可读的语义值。 */
+                          devices[0].status == "online";
 
     request.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_REQUEST);
     request.requestId = 202U;

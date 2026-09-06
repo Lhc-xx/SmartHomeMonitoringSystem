@@ -31,7 +31,7 @@ int main() {
   device.id = 0x0102030405060708ULL;
   device.deviceName = "客厅灯";
   device.deviceType = "light";
-  device.status = "on";
+  device.status = "online";
   devices.push_back(device);
   assert(DeviceProtocol::encodeDeviceListResponse(ErrorCode::SUCCESS, devices,
                                                    response));
@@ -39,6 +39,7 @@ int main() {
   assert(DeviceProtocol::decodeDeviceListResponse(response, code, devices));
   assert(devices.size() == 1U && devices[0].id == device.id);
   assert(devices[0].deviceName == device.deviceName);
+  assert(devices[0].status == "online");
 
   response.push_back(0xFF);
   assert(!DeviceProtocol::decodeDeviceListResponse(response, code, devices));
