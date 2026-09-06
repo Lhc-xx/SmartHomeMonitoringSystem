@@ -1,504 +1,115 @@
-// #include "protocol/Protocol.h"
-// #include "protocol/MessageType.h"
-
-// #include <iostream>
-// #include <cassert>
-// #include <cstring>
-
-// void testNormalPacket()
-// {
-
-//     std::cout
-//         << "==== test normal packet ===="
-//         << std::endl;
-
-
-
-//     /*
-//      * 构造一个消息
-//      */
-//     TlvMessage msg;
-
-
-//     msg.type =
-//         static_cast<uint16_t>(
-//             MessageType::REGISTER_REQ
-//         );
-
-
-//     msg.version =
-//         PROTOCOL_VERSION;
-
-
-//     msg.requestId = 100;
-
-
-
-//     std::string username =
-//         "lqw";
-
-
-//     msg.value.assign(
-//         username.begin(),
-//         username.end()
-//     );
-
-
-
-//     /*
-//      * 编码
-//      */
-//     auto buffer =
-//         TlvProtocol::encode(msg);
-
-
-
-//     /*
-//      * 模拟网络收到数据
-//      */
-//     std::vector<uint8_t>
-//         recvBuffer = buffer;
-
-
-
-//     TlvMessage result;
-
-
-
-//     bool ret =
-//         TlvProtocol::tryDecode(
-//             recvBuffer,
-//             result
-//         );
-
-
-
-//     assert(ret == true);
-
-
-
-//     assert(
-//         result.type
-//         ==
-//         msg.type
-//     );
-
-
-//     assert(
-//         result.requestId
-//         ==
-//         100
-//     );
-
-
-
-//     std::string value(
-//         result.value.begin(),
-//         result.value.end()
-//     );
-
-
-
-//     assert(
-//         value == "lqw"
-//     );
-
-
-//     std::cout
-//         << "normal packet pass"
-//         << std::endl;
-// }
-
-// void testHalfPacket()
-// {
-
-//     std::cout
-//         << "==== test half packet ===="
-//         << std::endl;
-
-
-
-//     TlvMessage msg;
-
-
-//     msg.type =
-//         static_cast<uint16_t>(
-//             MessageType::REGISTER_REQ
-//         );
-
-
-//     msg.requestId = 200;
-
-
-
-//     std::string data =
-//         "hello half packet";
-
-
-//     msg.value.assign(
-//         data.begin(),
-//         data.end()
-//     );
-
-
-
-//     auto packet =
-//         TlvProtocol::encode(msg);
-
-
-
-//     /*
-//      * 模拟第一次recv
-//      *
-//      * 只收到一半
-//      */
-//     std::vector<uint8_t>
-//         buffer;
-
-
-//     buffer.insert(
-//         buffer.end(),
-//         packet.begin(),
-//         packet.begin()
-//         +
-//         packet.size()/2
-//     );
-
-
-
-//     TlvMessage result;
-
-
-//     bool ret =
-//         TlvProtocol::tryDecode(
-//             buffer,
-//             result
-//         );
-
-
-
-//     /*
-//      * 关键：
-//      *
-//      * 数据不足
-//      *
-//      * 不能解析
-//      */
-//     assert(ret == false);
-
-
-
-//     /*
-//      * 第二次recv
-//      *
-//      * 收到剩余数据
-//      */
-//     buffer.insert(
-//         buffer.end(),
-//         packet.begin()
-//         +
-//         packet.size()/2,
-//         packet.end()
-//     );
-
-
-
-//     ret =
-//         TlvProtocol::tryDecode(
-//             buffer,
-//             result
-//         );
-
-
-
-//     assert(ret == true);
-
-
-
-//     std::cout
-//         << "half packet pass"
-//         << std::endl;
-// }
-
-// void TcpConnection::onMessage()
-// {
-
-
-//     while(socket.recv(data))
-//     {
-
-//         _inputBuffer.insert(
-//             data
-//         );
-
-
-
-//         while(
-//           TlvProtocol::tryDecode(
-//              _inputBuffer,
-//              msg
-//           ))
-//         {
-
-
-//             handleMessage(msg);
-
-
-//         }
-
-//     }
-
-// }
-
-// void testStickyPacket()
-// {
-
-//     std::cout
-//         << "==== test sticky packet ===="
-//         << std::endl;
-
-
-
-//     TlvMessage msg1;
-
-
-//     msg1.type =
-//         static_cast<uint16_t>(
-//             MessageType::REGISTER_REQ
-//         );
-
-
-//     msg1.requestId = 1;
-
-
-//     std::string str1 =
-//         "packet1";
-
-
-//     msg1.value.assign(
-//         str1.begin(),
-//         str1.end()
-//     );
-
-
-
-
-//     TlvMessage msg2;
-
-
-//     msg2.type =
-//         static_cast<uint16_t>(
-//             MessageType::LOGIN_REQ
-//         );
-
-
-//     msg2.requestId = 2;
-
-
-//     std::string str2 =
-//         "packet2";
-
-
-//     msg2.value.assign(
-//         str2.begin(),
-//         str2.end()
-//     );
-
-
-
-//     auto packet1 =
-//         TlvProtocol::encode(msg1);
-
-
-//     auto packet2 =
-//         TlvProtocol::encode(msg2);
-
-
-
-//     /*
-//      * 模拟一次recv收到两个包
-//      */
-//     std::vector<uint8_t>
-//         buffer;
-
-
-//     buffer.insert(
-//         buffer.end(),
-//         packet1.begin(),
-//         packet1.end()
-//     );
-
-
-//     buffer.insert(
-//         buffer.end(),
-//         packet2.begin(),
-//         packet2.end()
-//     );
-
-
-
-//     TlvMessage result;
-
-
-
-//     bool ret =
-//         TlvProtocol::tryDecode(
-//             buffer,
-//             result
-//         );
-
-
-//     assert(ret);
-
-
-
-//     assert(
-//         result.requestId == 1
-//     );
-
-
-
-//     /*
-//      * 第一个包解析完成后
-//      *
-//      * buffer里面还剩第二个
-//      */
-//     ret =
-//         TlvProtocol::tryDecode(
-//             buffer,
-//             result
-//         );
-
-
-//     assert(ret);
-
-
-
-//     assert(
-//         result.requestId == 2
-//     );
-
-
-
-//     std::cout
-//         << "sticky packet pass"
-//         << std::endl;
-// }
-
-// void testLargePacket()
-// {
-
-//     std::cout
-//         << "==== test large packet ===="
-//         << std::endl;
-
-
-
-//     std::vector<uint8_t>
-//         buffer(
-//             TLV_HEADER_SIZE
-//         );
-
-
-
-//     uint8_t *ptr =
-//         buffer.data();
-
-
-
-//     uint16_t type =
-//         htons(1);
-
-
-
-//     memcpy(
-//         ptr,
-//         &type,
-//         2
-//     );
-
-
-
-//     ptr +=2;
-
-
-
-//     uint16_t version =
-//         htons(1);
-
-
-//     memcpy(
-//         ptr,
-//         &version,
-//         2
-//     );
-
-
-//     ptr +=2;
-
-
-
-//     /*
-//      * 伪造4GB长度
-//      */
-//     uint32_t length =
-//         htonl(
-//             0xffffffff
-//         );
-
-
-//     memcpy(
-//         ptr,
-//         &length,
-//         4
-//     );
-
-
-
-//     TlvMessage msg;
-
-
-//     bool ret =
-//         TlvProtocol::tryDecode(
-//             buffer,
-//             msg
-//         );
-
-
-//     /*
-//      * 必须失败
-//      */
-//     assert(
-//         ret == false
-//     );
-
-
-//     std::cout
-//         << "large packet pass"
-//         << std::endl;
-// }
-
-
-// int main()
-// {
-
-//     testNormalPacket();
-
-
-//     testHalfPacket();
-
-
-//     testStickyPacket();
-
-
-//     testLargePacket();
-
-
-
-//     std::cout
-//         << "\nALL TEST PASS"
-//         << std::endl;
-
-
-//     return 0;
-// }
+#include "protocol/MessageType.h"
+#include "protocol/Protocol.h"
+
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <vector>
+
+namespace {
+
+/*
+ * 手工构造固定头，避免测试通过调用待测编码器而掩盖解码器的大端错误。
+ */
+std::vector<uint8_t> makeHeader(uint16_t type, uint16_t version,
+                                uint32_t length, uint32_t requestId) {
+  std::vector<uint8_t> bytes;
+  bytes.push_back(static_cast<uint8_t>(type >> 8));
+  bytes.push_back(static_cast<uint8_t>(type));
+  bytes.push_back(static_cast<uint8_t>(version >> 8));
+  bytes.push_back(static_cast<uint8_t>(version));
+  bytes.push_back(static_cast<uint8_t>(length >> 24));
+  bytes.push_back(static_cast<uint8_t>(length >> 16));
+  bytes.push_back(static_cast<uint8_t>(length >> 8));
+  bytes.push_back(static_cast<uint8_t>(length));
+  bytes.push_back(static_cast<uint8_t>(requestId >> 24));
+  bytes.push_back(static_cast<uint8_t>(requestId >> 16));
+  bytes.push_back(static_cast<uint8_t>(requestId >> 8));
+  bytes.push_back(static_cast<uint8_t>(requestId));
+  return bytes;
+}
+
+void testGoldenBytesAndDecodedStatus() {
+  /* 固定字节序列覆盖 type、version、length 与 requestId 的大端顺序。 */
+  TlvMessage message;
+  message.type = static_cast<uint16_t>(MessageType::REGISTER_REQUEST);
+  message.requestId = 0x01020304U;
+  message.value.push_back(0xAA);
+  message.value.push_back(0xBB);
+
+  const std::vector<uint8_t> expected = {
+      0x10, 0x01, 0x00, 0x01, 0x00, 0x00,
+      0x00, 0x02, 0x01, 0x02, 0x03, 0x04,
+      0xAA, 0xBB};
+  std::vector<uint8_t> buffer = TlvProtocol::encode(message);
+  assert(buffer == expected);
+
+  TlvMessage decoded;
+  assert(TlvProtocol::decode(buffer, decoded) == TlvDecodeStatus::Decoded);
+  assert(buffer.empty());
+  assert(decoded.type == message.type);
+  assert(decoded.version == PROTOCOL_VERSION);
+  assert(decoded.requestId == message.requestId);
+  assert(decoded.value == message.value);
+}
+
+void testHalfPacketAndStickyPackets() {
+  /* 半包必须保留原缓冲区，待后续网络数据到达后才能成功解析。 */
+  TlvMessage first;
+  first.type = static_cast<uint16_t>(MessageType::LOGIN_REQUEST);
+  first.requestId = 11;
+  first.value.assign(3, 0x7A);
+  const std::vector<uint8_t> firstPacket = TlvProtocol::encode(first);
+
+  std::vector<uint8_t> buffer(firstPacket.begin(), firstPacket.begin() + 7);
+  TlvMessage decoded;
+  assert(TlvProtocol::decode(buffer, decoded) == TlvDecodeStatus::Incomplete);
+  assert(buffer.size() == 7);
+
+  buffer.insert(buffer.end(), firstPacket.begin() + 7, firstPacket.end());
+  TlvMessage second;
+  second.type = static_cast<uint16_t>(MessageType::DEVICE_LIST_REQUEST);
+  second.requestId = 12;
+  const std::vector<uint8_t> secondPacket = TlvProtocol::encode(second);
+  buffer.insert(buffer.end(), secondPacket.begin(), secondPacket.end());
+
+  assert(TlvProtocol::decode(buffer, decoded) == TlvDecodeStatus::Decoded);
+  assert(decoded.requestId == 11);
+  assert(TlvProtocol::tryDecode(buffer, decoded));
+  assert(decoded.requestId == 12);
+  assert(buffer.empty());
+}
+
+void testRejectedHeaderStates() {
+  /* 未知 type、错误 version、超大 body 分别必须返回可区分的状态。 */
+  TlvMessage decoded;
+  std::vector<uint8_t> unknown = makeHeader(0x9999, PROTOCOL_VERSION, 0, 1);
+  assert(TlvProtocol::decode(unknown, decoded) == TlvDecodeStatus::UnknownMessage);
+
+  std::vector<uint8_t> unsupported = makeHeader(
+      static_cast<uint16_t>(MessageType::REGISTER_REQUEST), 2, 0, 1);
+  assert(TlvProtocol::decode(unsupported, decoded) ==
+         TlvDecodeStatus::UnsupportedVersion);
+
+  std::vector<uint8_t> oversized = makeHeader(
+      static_cast<uint16_t>(MessageType::REGISTER_REQUEST), PROTOCOL_VERSION,
+      MAX_TLV_BODY_SIZE + 1U, 1);
+  assert(TlvProtocol::decode(oversized, decoded) ==
+         TlvDecodeStatus::BodyTooLarge);
+
+  /* 对恶意声明长度的编码请求也必须拒绝，不能把 size_t 静默截断为 uint32_t。 */
+  TlvMessage huge;
+  huge.type = static_cast<uint16_t>(MessageType::REGISTER_REQUEST);
+  huge.value.resize(static_cast<std::size_t>(MAX_TLV_BODY_SIZE) + 1U);
+  assert(TlvProtocol::encode(huge).empty());
+}
+
+}  // namespace
+
+int main() {
+  testGoldenBytesAndDecodedStatus();
+  testHalfPacketAndStickyPackets();
+  testRejectedHeaderStates();
+  std::cout << "[PASS] protocol_test" << std::endl;
+  return 0;
+}

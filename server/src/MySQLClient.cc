@@ -1,187 +1,194 @@
 #include "MySQLClient.h"
 
-#include "iostream"
-#include <cstddef>
-#include <mutex>
 #include <mysql/mysql.h>
-#include <sstream>
 
-namespace smart_home{
+#include <mutex>
 
-    MySQLClient::MySQLClient()
-    :_conn(nullptr)
-    ,_connected(false)
-    ,_lastError(){
-        //链接MYSQL 链接句柄
-        //此时只是初始化
-        //还没有真正的连接服务器
+namespace smart_home {
+
+MySQLClient::MySQLClient()
+    : _conn(mysql_init(nullptr)), _connected(false), _lastError(), _lastErrno(0U) {
+    /* 构造阶段只创建 C API 句柄，不连接服务器，连接参数由启动层决定。 */
+    if (_conn == nullptr) {
+        _lastError = "mysql_init failed";
+    }
+}
+
+MySQLClient::~MySQLClient() {
+    /* 析构统一释放句柄，避免业务层遗漏 mysql_close。 */
+    if (_conn != nullptr) {
+        mysql_close(_conn);
+        _conn = nullptr;
+    }
+    _connected = false;
+}
+
+bool MySQLClient::connect(const std::string &host,
+                          const std::string &user,
+                          const std::string &password,
+                          const std::string &database,
+                          unsigned int port) {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (_connected) {
+        return true;
+    }
+    if (_conn == nullptr) {
         _conn = mysql_init(nullptr);
-        if(_conn == nullptr){
+        if (_conn == nullptr) {
             _lastError = "mysql_init failed";
+            _lastErrno = 0U;
+            return false;
         }
-
     }
 
-    MySQLClient::~MySQLClient(){
-        if(_conn != nullptr){
-            mysql_close(_conn);
-            _conn = nullptr;
-        }
+    /* 设置有限连接超时和 utf8mb4，保证中文设备名按统一编码读写。 */
+    unsigned int timeout = 5U;
+    mysql_options(_conn, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
+    mysql_options(_conn, MYSQL_SET_CHARSET_NAME, "utf8mb4");
+
+    if (mysql_real_connect(_conn, host.c_str(), user.c_str(), password.c_str(),
+                           database.c_str(), port, nullptr, 0U) == nullptr) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
         _connected = false;
+        return false;
     }
+    _connected = true;
+    _lastError.clear();
+    _lastErrno = 0U;
+    return true;
+}
 
-    bool MySQLClient::connect(const std::string &host,
-        const std::string &user,
-        const std::string &password,
-        const std::string &database,
-        unsigned int port){
-            //数据库连接是共享资源
-            //必须加锁
-            std::lock_guard<std::mutex> guard(_mutex);
-            
-            //已经连接了就不要重新连接
-            if(_connected){
-                return true;
-            }
-            //如果句柄不存在，尝试重新创建
-            if(_conn == nullptr){
-                _conn = mysql_init(nullptr);
-                if(_conn == nullptr){
-                    _lastError = "mysql_init failed";
-                    return false;
-                }
-            }
-            //设置连接超时
-            unsigned int timeout = 5;
-            mysql_options(_conn, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
+void MySQLClient::close() {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (_conn != nullptr) {
+        mysql_close(_conn);
+        _conn = nullptr;
+    }
+    _connected = false;
+}
 
-            //指定UTF_8 字符集
-            //后面的设备名称等可能包含中文
-            mysql_options(_conn,MYSQL_SET_CHARSET_NAME,"utf8mb4");
+bool MySQLClient::isConnection() const {
+    std::lock_guard<std::mutex> guard(_mutex);
+    return _connected;
+}
 
-            //真正的建立TCP/MySQL 连接
-            MYSQL *result = mysql_real_connect(_conn, host.c_str(), user.c_str(), password.c_str(), database.c_str(), port, nullptr, 0);
-            
-            if(result == nullptr){
-                _lastError = mysql_error(_conn);
-                _connected = false;
-                return false;
-            }
+bool MySQLClient::execute(const std::string &sql) {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return false;
+    }
+    if (mysql_real_query(_conn, sql.c_str(), static_cast<unsigned long>(sql.size())) != 0) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return false;
+    }
+    _lastError.clear();
+    _lastErrno = 0U;
+    return true;
+}
 
-            _connected = true;
-            _lastError.clear();
-            return true;
-        }
+MYSQL_RES *MySQLClient::query(const std::string &sql) {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return nullptr;
+    }
+    if (mysql_real_query(_conn, sql.c_str(), static_cast<unsigned long>(sql.size())) != 0) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return nullptr;
+    }
+    MYSQL_RES *result = mysql_store_result(_conn);
+    if (result == nullptr && mysql_field_count(_conn) != 0U) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return nullptr;
+    }
+    _lastError.clear();
+    _lastErrno = 0U;
+    return result;
+}
 
-        void MySQLClient::close(){
-            std::lock_guard<std::mutex> guard(_mutex);
+std::string MySQLClient::escape(const std::string &value) {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return std::string();
+    }
+    /* 调用 MySQL 的转义函数，禁止业务字符串直接拼入 SQL。 */
+    std::string escaped(value.size() * 2U + 1U, '\0');
+    const unsigned long length = mysql_real_escape_string(
+        _conn, &escaped[0], value.c_str(), static_cast<unsigned long>(value.size()));
+    escaped.resize(static_cast<std::size_t>(length));
+    _lastError.clear();
+    _lastErrno = 0U;
+    return escaped;
+}
 
-            if(_conn != nullptr){
-                mysql_close(_conn);
-                _conn = nullptr;
-            }
-            _connected = false;
-        }
+std::string MySQLClient::lastError() const {
+    std::lock_guard<std::mutex> guard(_mutex);
+    return _lastError;
+}
 
-        bool MySQLClient::isConnection() const{
-            std::lock_guard<std::mutex> guard(_mutex);
-            return _connected;
-        }
+bool MySQLClient::beginTransaction() {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return false;
+    }
+    if (mysql_real_query(_conn, "START TRANSACTION", 17U) != 0) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return false;
+    }
+    _lastError.clear();
+    _lastErrno = 0U;
+    return true;
+}
 
+bool MySQLClient::commit() {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return false;
+    }
+    if (mysql_commit(_conn) != 0) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return false;
+    }
+    _lastError.clear();
+    _lastErrno = 0U;
+    return true;
+}
 
-        bool MySQLClient::execute(const std::string &sql){
-            std::lock_guard<std::mutex> guard(_mutex);
+bool MySQLClient::rollback() {
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_connected || _conn == nullptr) {
+        _lastError = "MySQL is not connected";
+        _lastErrno = 0U;
+        return false;
+    }
+    if (mysql_rollback(_conn) != 0) {
+        _lastError = mysql_error(_conn);
+        _lastErrno = mysql_errno(_conn);
+        return false;
+    }
+    _lastError.clear();
+    _lastErrno = 0U;
+    return true;
+}
 
-            //未连接数据库，不允许执行 SQL
-            if(!_connected || _conn == nullptr){
-                _lastError = "MySQL is not connected";
+unsigned int MySQLClient::lastErrno() const {
+    std::lock_guard<std::mutex> guard(_mutex);
+    return _lastErrno;
+}
 
-                return false;
-
-            }
-            //mysql_real_query
-            //相比于mysql_query
-            //显示的提供SQL 长度
-            int ret = mysql_real_query(_conn,
-                sql.c_str(),
-            static_cast<unsigned long>(sql.size()));
-
-            if(ret != 0){
-                _lastError = mysql_error(_conn);
-                return false;
-            }
-
-            _lastError.clear();
-            return true;
-        }
-
-        MYSQL_RES *MySQLClient::query(
-            const std::string &sql){
-                std::lock_guard<std::mutex> guard(_mutex);
-
-                if(!_connected || _conn == nullptr){
-                    _lastError = "MySQL is not connected";
-                    return nullptr;
-                }
-
-                //首先先将SELECT 发送给MySQL
-                int ret = mysql_real_query(_conn, sql.c_str(), static_cast<unsigned long>(sql.size()));
-
-
-                //MySQL C API 大部分的返回约定 和 Linux 一样 0表示成功 非0 表示失败 
-                if(ret != 0){
-                    _lastError = mysql_error(_conn);
-                    return nullptr;
-                }
-
-                //mysql_store_result
-                //将查询的结果完整的读取到客户端内存
-                //后面通过
-                //mysql_fetch_row()
-                //一行一行的读取
-                MYSQL_RES *result = mysql_store_result(_conn);
-
-                //如果SELECT 应该产生结果集
-                //但是store_result 返回nullptr
-                //说明发生了错误
-                if(result == nullptr && mysql_field_count(_conn) != 0){
-                    _lastError = mysql_error(_conn);
-                    return nullptr;
-                }
-                _lastError.clear();
-                return result;
-            }
-
-
-            std::string MySQLClient::escape(const std::string &value){
-                std::lock_guard<std::mutex> guard(_mutex);
-
-                if(!_connected || _conn == nullptr){
-                    _lastError = "MySQL is not connected";
-                    return "";
-                }
-
-                //MySQL 转义之后的字符串
-                //最坏的情况下长度接近原来的2倍
-                //因此 value.size() * 2 +1
-                std::string escaped;
-
-                escaped.resize(value.size()*2+1);
-                unsigned long length = mysql_real_escape_string(
-                    _conn,
-                    &escaped[0],
-                    value.c_str(),
-                    static_cast<unsigned long>(value.size()));
-
-                //resize() 到实际的长度
-                escaped.resize(length);
-                _lastError.clear();
-                return escaped;
-            }
-
-            std::string MySQLClient::lastError() const{
-                std::lock_guard<std::mutex> guard(_mutex);
-                return _lastError;
-            }
-
-}   //namespace smart_home
+} // namespace smart_home
