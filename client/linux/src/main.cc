@@ -13,20 +13,34 @@
 #include <iostream>       // 打印
 #include <vector>
 
+#include "client_config.h"         // 客户端配置读取（角色 A）
+
 #include "protocol/Protocol.h"     // TlvMessage / TlvProtocol / PROTOCOL_VERSION
 #include "protocol/MessageType.h"  // MessageType 枚举
 #include "protocol/AuthProtocol.h"   // ← B 的认证协议（封包/解包）
 #include "protocol/ErrorCode.h"      // ← 错误码枚举
 #include "protocol/media_packet.h"   // MediaPacket / MediaPacketSerializer
 
-int main() {
+int main(int argc, char *argv[]) {
+    // 0. 读取客户端配置（默认 client/linux/conf/client.conf，可用命令行参数覆盖）
+    std::string config_path = "client/linux/conf/client.conf";
+    if (argc > 1) {
+        config_path = argv[1];
+    }
+    smart_home::ClientConfig cfg;
+    if (!smart_home::loadClientConfig(config_path, cfg)) {
+        std::cout << "[warn] cannot load config " << config_path
+                  << ", using defaults" << std::endl;
+    }
+    std::cout << "connect to " << cfg.server_ip << ":" << cfg.server_port << std::endl;
+
     // 1.socket
     int sockfd;
     // 2.connect
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr.sin_port = htons(7777);
+    addr.sin_addr.s_addr = inet_addr(cfg.server_ip.c_str());
+    addr.sin_port = htons(cfg.server_port);
     while(true){
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if(sockfd < 0){

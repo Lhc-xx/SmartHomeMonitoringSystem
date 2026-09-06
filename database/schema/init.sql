@@ -5,6 +5,13 @@ CREATE DATABASE IF NOT EXISTS smarthome
 
 USE smarthome;
 
+/* 先按外键依赖逆序删除旧表，保证重复执行能得到干净一致的 schema。 */
+DROP TABLE IF EXISTS user_sessions;
+DROP TABLE IF EXISTS recordings;
+DROP TABLE IF EXISTS records;
+DROP TABLE IF EXISTS devices;
+DROP TABLE IF EXISTS users;
+
 /* 用户凭据只保存 PBKDF2 摘要与随机 salt，绝不保存明文密码。 */
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'user primary key',
