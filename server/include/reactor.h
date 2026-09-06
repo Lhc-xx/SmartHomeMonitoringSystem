@@ -3,6 +3,7 @@
 
 #include "connection.h"
 #include "thread_pool.h"
+#include "protocol/MessageType.h"
 
 #include <string>
 #include <map>
@@ -23,6 +24,7 @@ namespace smart_home {
         void stop(); //退出事件循环
         void setAuthHandler(AuthHandler* handler);
         void setResourceHandler(ResourceHandler* handler);
+        void setSessionTimeout(int seconds); // 登录会话超时（秒），<=0 永不超时
 
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
@@ -32,8 +34,11 @@ namespace smart_home {
         std::mutex _streamsMutex;                                 // 保护 _streams
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
         void checkIdleConnections();   // 扫描并回收空闲连接
+        void sendUnauthorized(std::shared_ptr<Connection> conn, const TlvMessage &msg,
+                              MessageType requestType); // 未登录/会话失效时返回 UNAUTHORIZED
 
     private:
+        int _sessionTimeout = 1800; // 登录会话超时（秒）
         int _epFd; // epoll 实例fd
         int _listenFd; // 监听的fd
         std::atomic<bool> _runFlag; // 运行标志

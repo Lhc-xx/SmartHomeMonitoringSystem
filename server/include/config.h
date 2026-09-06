@@ -22,6 +22,9 @@ namespace smart_home {
         std::string videoPath() const;
         std::string logFile() const;
 
+        // 登录会话超时（秒），默认 1800（30 分钟）
+        int sessionTimeout() const;
+
         //MySQL 配置
         //MySQL 服务器地址 默认127.0.0.1
         std::string mysqlHost() const;

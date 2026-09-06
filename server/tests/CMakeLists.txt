@@ -83,3 +83,19 @@ if(SMARTHOME_ENABLE_DB_INTEGRATION_TESTS)
             LABELS "b;database;integration"
     )
 endif()
+
+#[[连接级登录状态机（角色 A）：不依赖 MySQL / log4cpp / epoll，自动加入 CTest。]]
+add_executable(connection_session_test
+    connection_session_test.cc ../src/connection.cc)
+target_link_libraries(connection_session_test PRIVATE smart_home_common pthread)
+target_compile_features(connection_session_test PRIVATE cxx_std_11)
+target_include_directories(connection_session_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME connection_session_test COMMAND connection_session_test)
+
+#[[未登录拦截策略纯逻辑（角色 A）：不依赖第三方库，自动加入 CTest。]]
+add_executable(session_policy_test
+    session_policy_test.cc)
+target_link_libraries(session_policy_test PRIVATE smart_home_common pthread)
+target_compile_features(session_policy_test PRIVATE cxx_std_11)
+target_include_directories(session_policy_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME session_policy_test COMMAND session_policy_test)
