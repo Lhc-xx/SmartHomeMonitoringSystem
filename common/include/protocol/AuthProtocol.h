@@ -24,7 +24,7 @@ class AuthProtocol {
   /* 注册响应：code:int32 + messageLen:uint16 + UTF-8 message。 */
   static std::vector<uint8_t> encodeRegisterResponse(ErrorCode code,
                                                      const std::string &message);
-  /* 旧单参数接口保留，固定产生 messageLen 为零的统一新格式。 */
+  /* 旧单参数接口保留并产生历史 4 字节布局；新响应应使用带 message 的重载。 */
   static std::vector<uint8_t> encodeRegisterResponse(ErrorCode code);
   static bool decodeRegisterResponse(const std::vector<uint8_t> &value,
                                      ErrorCode &code, std::string &message);
