@@ -65,6 +65,10 @@ bool isKnownMessageType(uint16_t type) {
     case MessageType::STREAM_START_RESPONSE:
     case MessageType::STREAM_STOP_REQUEST:
     case MessageType::STREAM_STOP_RESPONSE:
+    case MessageType::RECORD_START_REQUEST:
+    case MessageType::RECORD_START_RESPONSE:
+    case MessageType::RECORD_STOP_REQUEST:
+    case MessageType::RECORD_STOP_RESPONSE:
       return true;
   }
   return false;
