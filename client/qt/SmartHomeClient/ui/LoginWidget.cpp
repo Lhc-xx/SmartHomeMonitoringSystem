@@ -3,6 +3,7 @@
 #include "ui_LoginWidget.h"
 
 #include "service/UserService.h"
+#include "ui/RegisterDialog.h"
 
 LoginWidget::LoginWidget(UserService *userService, QWidget *parent)
     : QWidget(parent)
@@ -90,15 +91,8 @@ LoginWidget::LoginWidget(UserService *userService, QWidget *parent)
     connect(ui->loginButton, &QPushButton::clicked,
             this, &LoginWidget::onLoginClicked);
 
-    /*
-     * 服务层通过信号返回异步结果，界面不等待网络操作，
-     * 从而保持 Qt 主事件循环可响应用户操作。
-     */
+    /* 登录结果通过信号异步返回，界面不等待网络操作，保持主事件循环响应。 */
     if (m_userService != nullptr) {
-        connect(m_userService, &UserService::registerSuccess,
-                this, &LoginWidget::onRegisterSuccess);
-        connect(m_userService, &UserService::registerFailed,
-                this, &LoginWidget::onRegisterFailed);
         connect(m_userService, &UserService::loginSuccess,
                 this, &LoginWidget::onLoginSuccess);
         connect(m_userService, &UserService::loginFailed,
@@ -117,17 +111,19 @@ LoginWidget::~LoginWidget()
 
 void LoginWidget::onRegisterClicked()
 {
-    if (m_userService == nullptr) {
-        ui->statusLabel->setText(QStringLiteral("认证服务不可用。"));
-        return;
-    }
-
-    /* 用户名去除输入两端的无意空格；密码保持原样，避免静默修改密码内容。 */
-    const QString username = ui->usernameEdit->text().trimmed();
-    const QString password = ui->passwordEdit->text();
-
-    ui->statusLabel->setText(QStringLiteral("正在提交注册请求…"));
-    m_userService->registerUser(username, password);
+    /*
+     * 注册使用独立模态窗口，避免登录页同时承载两套提交逻辑，
+     * 也让注册输入校验和注册结果提示集中在用户当前操作的窗口中。
+     */
+    RegisterDialog dialog(m_userService, this);
+    connect(&dialog, &RegisterDialog::registered,
+            this, [this](const QString &username) {
+        ui->usernameEdit->setText(username);
+        ui->passwordEdit->clear();
+        ui->statusLabel->setText(QStringLiteral("注册成功，请登录"));
+        ui->passwordEdit->setFocus();
+    });
+    dialog.exec();
 }
 
 void LoginWidget::onLoginClicked()
@@ -141,16 +137,6 @@ void LoginWidget::onLoginClicked()
     const QString password = ui->passwordEdit->text();
     ui->statusLabel->setText(QStringLiteral("正在提交登录请求…"));
     m_userService->loginUser(username, password);
-}
-
-void LoginWidget::onRegisterSuccess()
-{
-    ui->statusLabel->setText(QStringLiteral("注册成功"));
-}
-
-void LoginWidget::onRegisterFailed(const QString &reason)
-{
-    ui->statusLabel->setText(reason);
 }
 
 void LoginWidget::onLoginSuccess(quint64 userId)

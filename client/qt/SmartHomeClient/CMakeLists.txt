@@ -20,6 +20,8 @@ add_executable(SmartHomeClient
     MainWindow.ui
     network/TcpClient.cpp
     network/TcpClient.h
+    network/PtzClient.cpp
+    network/PtzClient.h
     protocol/ClientProtocol.cpp
     protocol/ClientProtocol.h
     service/UserService.cpp
@@ -28,9 +30,18 @@ add_executable(SmartHomeClient
     model/DeviceModel.h
     model/RecordModel.cpp
     model/RecordModel.h
+    video/CameraConfig.cpp
+    video/CameraConfig.h
+    video/RtspPlayer.cpp
+    video/RtspPlayer.h
     ui/LoginWidget.cpp
     ui/LoginWidget.h
     ui/LoginWidget.ui
+    ui/RegisterDialog.cpp
+    ui/RegisterDialog.h
+    ui/RegisterDialog.ui
+    ui/MonitoringDashboard.cpp
+    ui/MonitoringDashboard.h
     video/VideoWidget.cpp
     video/VideoWidget.h
 )
@@ -61,6 +72,75 @@ if(BUILD_TESTING)
     target_link_libraries(ClientProtocolTest PRIVATE Qt5::Network)
     target_compile_features(ClientProtocolTest PRIVATE cxx_std_11)
     add_test(NAME ClientProtocolTest COMMAND ClientProtocolTest)
+
+    add_executable(CameraConfigTest
+        tests/CameraConfigTest.cpp
+        video/CameraConfig.cpp
+        video/CameraConfig.h
+    )
+    target_include_directories(CameraConfigTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(CameraConfigTest PRIVATE Qt5::Core Qt5::Test)
+    target_compile_features(CameraConfigTest PRIVATE cxx_std_11)
+    add_test(NAME CameraConfigTest COMMAND CameraConfigTest)
+
+    add_executable(RtspPlayerTest
+        tests/RtspPlayerTest.cpp
+        video/RtspPlayer.cpp
+        video/RtspPlayer.h
+    )
+    target_include_directories(RtspPlayerTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(RtspPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Network Qt5::Test)
+    target_compile_features(RtspPlayerTest PRIVATE cxx_std_11)
+    add_test(NAME RtspPlayerTest COMMAND RtspPlayerTest)
+
+    add_executable(VideoWidgetTest
+        tests/VideoWidgetTest.cpp
+        video/VideoWidget.cpp
+        video/VideoWidget.h
+    )
+    target_include_directories(VideoWidgetTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(VideoWidgetTest PRIVATE Qt5::Widgets Qt5::Test)
+    target_compile_features(VideoWidgetTest PRIVATE cxx_std_11)
+    add_test(NAME VideoWidgetTest COMMAND VideoWidgetTest)
+
+    add_executable(PtzClientTest
+        tests/PtzClientTest.cpp
+        network/PtzClient.cpp
+        network/PtzClient.h
+    )
+    target_include_directories(PtzClientTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(PtzClientTest PRIVATE Qt5::Core Qt5::Network Qt5::Test)
+    target_compile_features(PtzClientTest PRIVATE cxx_std_11)
+    add_test(NAME PtzClientTest COMMAND PtzClientTest)
+
+    add_executable(MonitoringDashboardTest
+        tests/MonitoringDashboardTest.cpp
+        ui/MonitoringDashboard.cpp
+        ui/MonitoringDashboard.h
+        video/CameraConfig.cpp
+        video/CameraConfig.h
+        video/RtspPlayer.cpp
+        video/RtspPlayer.h
+        video/VideoWidget.cpp
+        video/VideoWidget.h
+        network/PtzClient.cpp
+        network/PtzClient.h
+    )
+    target_include_directories(MonitoringDashboardTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(MonitoringDashboardTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
+    target_compile_features(MonitoringDashboardTest PRIVATE cxx_std_11)
+    add_test(NAME MonitoringDashboardTest COMMAND MonitoringDashboardTest)
 
     add_executable(NetworkBehaviorTest
         tests/NetworkBehaviorTest.cpp
@@ -122,6 +202,19 @@ if(BUILD_TESTING)
         ui/LoginWidget.cpp
         ui/LoginWidget.h
         ui/LoginWidget.ui
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
+        ui/MonitoringDashboard.cpp
+        ui/MonitoringDashboard.h
+        video/CameraConfig.cpp
+        video/CameraConfig.h
+        video/RtspPlayer.cpp
+        video/RtspPlayer.h
+        video/VideoWidget.cpp
+        video/VideoWidget.h
+        network/PtzClient.cpp
+        network/PtzClient.h
     )
     target_include_directories(MainWindowTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -130,4 +223,27 @@ if(BUILD_TESTING)
     target_link_libraries(MainWindowTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
     target_compile_features(MainWindowTest PRIVATE cxx_std_11)
     add_test(NAME MainWindowTest COMMAND MainWindowTest)
+
+    add_executable(RegisterDialogTest
+        tests/RegisterDialogTest.cpp
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
+        ui/LoginWidget.cpp
+        ui/LoginWidget.h
+        ui/LoginWidget.ui
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+    )
+    target_include_directories(RegisterDialogTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(RegisterDialogTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
+    target_compile_features(RegisterDialogTest PRIVATE cxx_std_11)
+    add_test(NAME RegisterDialogTest COMMAND RegisterDialogTest)
 endif()

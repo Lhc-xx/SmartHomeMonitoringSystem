@@ -11,6 +11,7 @@ class QDateTimeEdit;
 class QListView;
 class QLabel;
 class LoginWidget;
+class MonitoringDashboard;
 class QPushButton;
 class RecordModel;
 class TcpClient;
@@ -48,6 +49,7 @@ private:
     TcpClient *m_tcpClient;
     UserService *m_userService;
     LoginWidget *m_loginWidget;
+    MonitoringDashboard *m_dashboard;
     QWidget *m_dataPage;
     DeviceModel *m_deviceModel;
     RecordModel *m_recordModel;
