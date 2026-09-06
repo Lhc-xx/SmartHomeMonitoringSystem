@@ -1,265 +1,214 @@
 #include "UserService.h"
-#include "MySQLClient.h"
+
 #include "protocol/ErrorCode.h"
 
-#include <cstddef>
 #include <mysql/mysql.h>
+#include <mysql/mysqld_error.h>
 
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
-#include <sstream>
+#include <cstddef>
+#include <cstdlib>
 #include <string>
 
 namespace smart_home {
 
-// salt 随机字节数
-// 16 Byte = 128 bit 随机salt
+namespace {
 
-//转HEX以后
-// 32个字符
-// users.salt VARCHAR(64)
-//足够保存
-static const int SALT_SIZE = 16;
+const int kSaltSize = 16;
+const int kHashSize = 32;
+const int kTokenRandomSize = 32;
+const int kTokenHashSize = 64;
+const int kPbkdf2Iterations = 100000;
 
-//最终的密码摘要
-// SHA256 = 32 Byte
-//转HEX 以后
-// 64 个字符
-// users.password_hash VARCHAR(256)
-//足够保存
-static const int HASH_SIZE = 32;
+} // namespace
 
-/*
- * PBKDF2迭代次数。
- *
- * 这里作为当前MVP版本固定参数。
- *
- * 它不是“越大绝对越好”，
- * 生产系统应该根据实际服务器性能和
- * 安全要求确定并支持升级。
- */
+UserService::UserService(MySQLClient &mysql)
+    : _mysql(mysql) {}
 
-static const int PBKDF2_ITERATIONS = 100000;
-
-UserService::UserService(MySQLClient &mysql) : _mysql(mysql) {}
-
-//注册参数校验
 bool UserService::validateRegisterParameter(const std::string &username,
                                             const std::string &password) const {
-  // username 数据库定义
-  // VARCHAR(64)
-  //所以最大不能超过64
-  if (username.empty() || username.size() > 64) {
-    return false;
-  }
-  //密码不能是空字符串
-  //同时给业务层设置一个合理的上限
-  //防止客户端发送超长无意义的参数
-  if (password.empty() || password.size() > 128) {
-    return false;
-  }
-  return true;
+    /* 注册和登录共享长度边界，防止超长输入进入 SQL 或密码派生算法。 */
+    return !username.empty() && username.size() <= 64U &&
+           !password.empty() && password.size() <= 128U;
 }
 
-//查询用户名是否存在
 bool UserService::userExists(const std::string &username, bool &exists) {
-  //默认不存在
-  exists = false;
-
-  //用户输入绝对不能直接拼接进SQL
-  //防止SQL注入攻击 OR 1=1
-  //所以必须先通过MySQLClient::escape()
-  //进行转义
-  std::string escapedUsername = _mysql.escape(username);
-
-  //查询用户名
-  // LIMIT 1
-  //只关心有没有 ，不需要查询所有的数据
-  std::string sql = "SELECT id "
-                    "FROM users "
-                    "WHERE username='" 
-                    + escapedUsername +
-                    "' "
-                    "LIMIT 1";
-
-  MYSQL_RES *result = _mysql.query(sql);
-  // result == nullptr
-  //表示数据库查询失败
-  if (result == nullptr) {
-    return false;
-  }
-  exists = mysql_num_rows(result) > 0;
-
-  // mysql_store_result(result);
-  //创建的MYSQL_RES资源
-  //使用之后必须释放
-  mysql_free_result(result);
-  result = nullptr;
-  return true;
+    exists = false;
+    const std::string escapedUsername = _mysql.escape(username);
+    MYSQL_RES *result = _mysql.query(
+        "SELECT id FROM users WHERE username='" + escapedUsername + "' LIMIT 1");
+    if (result == nullptr) {
+        return false;
+    }
+    exists = mysql_num_rows(result) > 0U;
+    mysql_free_result(result);
+    return true;
 }
 
-//二进制--->HEX
-std::string UserService::bytesToHex(const unsigned char *data,
-                                    std::size_t length) {
-  // HEX 字符表
-  static const char HEX[] = "0123456789abcdef";
-
-  std::string result;
-
-  //一个Byte 会变成两个HEX 字符
-  //所以提前 reserve
-  result.reserve(length * 2);
-
-  for (std::size_t i = 0; i < length; ++i) {
-    unsigned char byte = data[i];
-    result.push_back(HEX[(byte >> 4) & 0x0f]);
-
-    result.push_back(HEX[byte & 0x0F]);
-  }
-  return result;
+std::string UserService::bytesToHex(const unsigned char *data, std::size_t length) {
+    static const char kHex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(length * 2U);
+    for (std::size_t index = 0U; index < length; ++index) {
+        result.push_back(kHex[(data[index] >> 4U) & 0x0FU]);
+        result.push_back(kHex[data[index] & 0x0FU]);
+    }
+    return result;
 }
 
-//生成随机salt
 bool UserService::generateSalt(std::string &salt) {
-  unsigned char buffer[SALT_SIZE];
-
-  /*
-   * RAND_bytes()
-   *
-   * 使用OpenSSL安全随机数生成器。
-   *
-   * 返回1：
-   * 成功
-   */
-  if (RAND_bytes(buffer, SALT_SIZE) != 1) {
-    return false;
-  }
-
-  /*
-   * 随机二进制不能直接保存VARCHAR，
-   *
-   * 所以转换成HEX。
-   */
-  salt = bytesToHex(buffer, SALT_SIZE);
-
-  return true;
+    unsigned char bytes[kSaltSize];
+    if (RAND_bytes(bytes, kSaltSize) != 1) {
+        return false;
+    }
+    salt = bytesToHex(bytes, kSaltSize);
+    return true;
 }
 
 bool UserService::hashPassword(const std::string &password,
                                const std::string &salt,
                                std::string &passwordHash) {
-  unsigned char hash[HASH_SIZE];
-
-  /*
-   * PKCS5_PBKDF2_HMAC
-   *
-   * 输入：
-   *
-   * password
-   * salt
-   * iteration
-   * SHA256
-   *
-   * 输出：
-   *
-   * 32 Byte hash
-   */
-  int ret =
-      PKCS5_PBKDF2_HMAC(password.c_str(),
-
-                        static_cast<int>(password.size()),
-
-                        reinterpret_cast<const unsigned char *>(salt.data()),
-
-                        static_cast<int>(salt.size()),
-
-                        PBKDF2_ITERATIONS,
-
-                        EVP_sha256(),
-
-                        HASH_SIZE,
-
-                        hash);
-
-  /*
-   * 返回1代表成功。
-   */
-  if (ret != 1) {
-    return false;
-  }
-
-  /*
-   * 32 Byte二进制hash
-   *
-   * 转：
-   *
-   * 64字符HEX。
-   */
-  passwordHash = bytesToHex(hash, HASH_SIZE);
-
-  return true;
+    unsigned char hash[kHashSize];
+    const int result = PKCS5_PBKDF2_HMAC(
+        password.c_str(), static_cast<int>(password.size()),
+        reinterpret_cast<const unsigned char *>(salt.data()),
+        static_cast<int>(salt.size()), kPbkdf2Iterations, EVP_sha256(),
+        kHashSize, hash);
+    if (result != 1) {
+        return false;
+    }
+    passwordHash = bytesToHex(hash, kHashSize);
+    return true;
 }
 
-//用户注册主业务
+bool UserService::hashToken(const std::string &token, std::string &tokenHash) {
+    unsigned char hash[kTokenHashSize];
+    unsigned int hashLength = 0U;
+    if (EVP_Digest(token.data(), token.size(), hash, &hashLength, EVP_sha512(), nullptr) != 1 ||
+        hashLength != static_cast<unsigned int>(kTokenHashSize)) {
+        return false;
+    }
+    tokenHash = bytesToHex(hash, kTokenHashSize);
+    return true;
+}
+
+bool UserService::constantTimeEquals(const std::string &left,
+                                     const std::string &right) {
+    /* 长度不同时不调用比较函数；长度相同时使用 OpenSSL 常量时间比较。 */
+    return left.size() == right.size() && !left.empty() &&
+           CRYPTO_memcmp(left.data(), right.data(), left.size()) == 0;
+}
+
 ErrorCode UserService::registerUser(const std::string &username,
                                     const std::string &password) {
-  //第一步参数检查
-  if (!validateRegisterParameter(username, password)) {
-    return ErrorCode::INVALID_PARAMETER;
-  }
-  //第二步判断用户是否存在
-  bool exists = false;
-  if (!userExists(username, exists)) {
-    //查询失败
-    return ErrorCode::DATABASE_ERROR;
-  }
+    if (!validateRegisterParameter(username, password)) {
+        return ErrorCode::INVALID_PARAMETER;
+    }
 
-  if (exists) {
-    return ErrorCode::USER_ALREADY_EXISTS;
-  }
+    bool exists = false;
+    if (!userExists(username, exists)) {
+        return ErrorCode::DATABASE_ERROR;
+    }
+    if (exists) {
+        return ErrorCode::USER_ALREADY_EXISTS;
+    }
 
-  //第三步，生成随机的salt
-  std::string salt;
-  if (!generateSalt(salt)) {
-    return ErrorCode::INTERNAL_ERROR;
-  }
+    std::string salt;
+    std::string passwordHash;
+    if (!generateSalt(salt) || !hashPassword(password, salt, passwordHash)) {
+        return ErrorCode::INTERNAL_ERROR;
+    }
 
-  //第四步，密码哈希
-  std::string passwordHash;
-  if (!hashPassword(password, salt, passwordHash)) {
-    return ErrorCode::INTERNAL_ERROR;
-  }
+    const std::string sql =
+        "INSERT INTO users(username,password_hash,salt) VALUES('" +
+        _mysql.escape(username) + "','" + _mysql.escape(passwordHash) + "','" +
+        _mysql.escape(salt) + "')";
+    if (!_mysql.execute(sql)) {
+        /* 并发注册由数据库唯一索引兜底，向协议层映射为明确业务错误。 */
+        return _mysql.lastErrno() == ER_DUP_ENTRY
+                   ? ErrorCode::USER_ALREADY_EXISTS
+                   : ErrorCode::DATABASE_ERROR;
+    }
+    return ErrorCode::SUCCESS;
+}
 
-  //第五步 SQL 转义
-  std::string escapedUsername = _mysql.escape(username);
+LoginResult UserService::loginUser(const std::string &username,
+                                   const std::string &password) {
+    LoginResult result = {0U, std::string(), ErrorCode::INTERNAL_ERROR};
+    if (!validateRegisterParameter(username, password)) {
+        result.code = ErrorCode::INVALID_PARAMETER;
+        return result;
+    }
 
-  std::string escapedHash = _mysql.escape(passwordHash);
+    MYSQL_RES *queryResult = _mysql.query(
+        "SELECT id,password_hash,salt FROM users WHERE username='" +
+        _mysql.escape(username) + "' LIMIT 1");
+    if (queryResult == nullptr) {
+        result.code = ErrorCode::DATABASE_ERROR;
+        return result;
+    }
+    MYSQL_ROW row = mysql_fetch_row(queryResult);
+    if (row == nullptr) {
+        mysql_free_result(queryResult);
+        result.code = ErrorCode::USER_NOT_FOUND;
+        return result;
+    }
+    if (row[0] == nullptr || row[1] == nullptr || row[2] == nullptr) {
+        mysql_free_result(queryResult);
+        result.code = ErrorCode::DATABASE_ERROR;
+        return result;
+    }
 
-  std::string escapedSalt = _mysql.escape(salt);
+    const uint64_t userId = static_cast<uint64_t>(std::strtoull(row[0], nullptr, 10));
+    const std::string storedHash(row[1]);
+    const std::string salt(row[2]);
+    mysql_free_result(queryResult);
 
-  //第6 步 ,插入users表
-  std::string sql = "INSERT INTO users"
-                    "(username,password_hash,salt)"
-                    "VALUES('" +
-                    escapedUsername + "','" + escapedHash + "','" +
-                    escapedSalt + "')";
+    std::string calculatedHash;
+    if (!hashPassword(password, salt, calculatedHash)) {
+        result.code = ErrorCode::INTERNAL_ERROR;
+        return result;
+    }
+    if (!constantTimeEquals(calculatedHash, storedHash)) {
+        result.code = ErrorCode::PASSWORD_ERROR;
+        return result;
+    }
 
-  if(!_mysql.execute(sql)){
-    //注意：
-    //users.username 本身还有UNIQUE 约束
-    //前面的SELECT 属于业务层提前判断
-    //UNIQUE 属于数据库最后的一道保护
-    //当前MVP 如果 INSERT 失败
-    //统一返回 DATABASE_ERROR
-    //后续可以根据mysql_errno()
-    //将1062进一步映射成
-    //USER_ALREADY_EXISTS
-    return ErrorCode::DATABASE_ERROR;
-  }
+    unsigned char tokenBytes[kTokenRandomSize];
+    if (RAND_bytes(tokenBytes, kTokenRandomSize) != 1) {
+        result.code = ErrorCode::INTERNAL_ERROR;
+        return result;
+    }
+    const std::string token = bytesToHex(tokenBytes, kTokenRandomSize);
+    std::string tokenHash;
+    if (!hashToken(token, tokenHash)) {
+        result.code = ErrorCode::INTERNAL_ERROR;
+        return result;
+    }
 
-  //注册成功
-  return ErrorCode::SUCCESS;
+    /* 会话摘要写入和提交处于同一事务，失败时不留下半条会话记录。 */
+    if (!_mysql.beginTransaction()) {
+        result.code = ErrorCode::DATABASE_ERROR;
+        return result;
+    }
+    const std::string insertSql =
+        "INSERT INTO user_sessions(user_id,token_hash,expires_at) VALUES(" +
+        std::to_string(userId) + ",'" + _mysql.escape(tokenHash) +
+        "',DATE_ADD(UTC_TIMESTAMP(), INTERVAL 24 HOUR))";
+    if (!_mysql.execute(insertSql) || !_mysql.commit()) {
+        _mysql.rollback();
+        result.code = ErrorCode::DATABASE_ERROR;
+        return result;
+    }
+
+    /* 明文 token 只返回给当前调用方，数据库和日志均不保存它。 */
+    result.userId = userId;
+    result.token = token;
+    result.code = ErrorCode::SUCCESS;
+    return result;
 }
 
 } // namespace smart_home
