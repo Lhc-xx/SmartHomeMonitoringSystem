@@ -39,7 +39,8 @@ mysql -u root -p smarthome < database/seed/b_demo_data.sql.example
 
 ## 运行 B 数据库测试
 
-确保 `server/conf/server.conf` 只存在于部署机器且未被 Git 跟踪，然后执行：
+仓库中的 `server/conf/server.conf` 是已脱敏模板。真实数据库凭据只能在隔离测试
+工作树中临时填写，测试结束后不得提交，然后执行：
 
 ```bash
 cmake -S . -B build \

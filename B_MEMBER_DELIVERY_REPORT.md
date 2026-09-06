@@ -122,14 +122,16 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 | Windows MinGW32 | Common 顶层独立构建与 CTest | 5/5 PASS |
 | Qt 5.14.2 MinGW32 | SmartHomeClient 全量构建 | PASS |
 | Qt 5.14.2 MinGW32 | ClientProtocol、网络行为、UserService、MainWindow | 4/4 PASS |
+| Ubuntu 22.04 + MySQL | 完整 `smart_home_server` 构建与链接 | PASS |
+| Ubuntu 22.04 + MySQL | Common、Server 与数据库 CTest | 10/10 PASS |
 | Ubuntu 22.04 + MySQL | mysql、UserService、AuthHandler、ResourceHandler | 4/4 PASS |
 | Ubuntu 22.04 + MySQL | 脱敏 `b_demo_data.sql.example` | PASS |
 
-数据库测试覆盖连接/查询/事务、正常注册、重复用户、非法参数、正确登录、错误密码、错误用户、token 非明文落库、设备归属、录像时间过滤和错误 token。
+数据库测试覆盖连接/查询/事务、正常注册、重复用户、非法参数、正确登录、错误密码、错误用户、token 非明文落库、设备归属、设备状态 `1 → online` 转换、录像时间过滤和错误 token。
 
-### FAIL / 外部集成阻断
+### FAIL
 
-最新 `dev-integration` 的完整 `smart_home_server` 在 Ubuntu 链接阶段失败：`main.cc` 调用了 `Reactor::setResourceHandler(ResourceHandler*)`，但当前 A 模块 `reactor.cc` 缺少对应定义。B 的四个独立服务端测试均已构建并通过；该问题需要 A 在 Reactor 模块补齐后再执行最终 Qt→Server 全链路回归。
+无。最新 `dev-integration` 已补齐 `Reactor::setResourceHandler`，本分支合并后完整服务器构建、链接和 10 项 CTest 均通过。
 
 ### BLOCKED_BY_ENV
 
@@ -142,8 +144,7 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 
 ## 7. 当前风险与交付建议
 
-1. A 需要补齐 `Reactor::setResourceHandler` 定义并重新构建整服；
-2. A 修复后，使用脱敏演示数据执行一次 Qt 注册→登录→设备列表→录像查询；
-3. C 生成真实录像文件后，只需将对应路径和时间写入 `records`，B 查询接口无需感知编码格式；
-4. 不要提交 `server/conf/server.conf`、Qt Creator `.user`、真实 RTSP 地址、账号、密码和 token；
-5. 合入前由 A/B 共同核对 Handler 路由和 requestId，随后再从 `dev-integration` 向 `master` 提交最终 PR。
+1. 合入前使用脱敏演示数据再执行一次 Qt 注册→登录→设备列表→录像查询全链路冒烟；
+2. C 生成真实录像文件后，只需将对应路径和时间写入 `records`，B 查询接口无需感知编码格式；
+3. `server/conf/server.conf` 只能保留脱敏占位值，不要提交 Qt Creator `.user`、真实 RTSP 地址、账号、密码和 token；
+4. 由 A/B 共同核对 Handler 路由和 requestId，随后再从 `dev-integration` 向 `master` 提交最终 PR。
