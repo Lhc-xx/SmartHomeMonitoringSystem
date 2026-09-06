@@ -20,7 +20,7 @@
 
 ### 3.1 方案选择
 
-采用 `QProcess + ffmpeg.exe`：每路摄像头由一个独立的 `RtspPlayer` 管理一个 FFmpeg 子进程。FFmpeg 使用 RTSP over TCP 拉取视频，将解码后的 JPEG 帧经标准输出交给 Qt；`RtspPlayer` 在工作线程事件循环中处理字节流，向 UI 发出 `QImage` 帧信号。
+采用 `QProcess + ffmpeg.exe`：每路摄像头由一个独立的 `RtspPlayer` 管理一个 FFmpeg 子进程。FFmpeg 使用 RTSP over TCP 拉取视频，将解码后的 JPEG 帧经标准输出交给 Qt；`RtspPlayer` 在所属 Qt 事件循环中异步处理字节流，向 UI 发出 `QImage` 帧信号，避免阻塞界面线程。
 
 选择该方案的理由：当前 Windows 环境可运行 `ffmpeg.exe`，但未发现可供 Qt MinGW 32 位直接链接的 FFmpeg 头文件和导入库。用子进程不会改变现有 Qt/MinGW 链接边界，也避免引入未接入的 libVLC 目录。
 
@@ -63,7 +63,7 @@
 
 配置字段包括：枪机/球机别名、RTSP URL、摄像头 Web 地址、设备类型、FFmpeg 路径和是否启用自动预览。程序优先读取环境变量指定的本地配置路径，再读取客户端目录下的 `conf/cameras.local.conf`。
 
-FFmpeg 进程采用 RTSP TCP 传输，标准输出仅保留有限大小的帧缓冲；若输出异常、进程退出或解析超时，玩家进入“重连中”状态并以退避定时器重启。关闭工作台、注销或应用退出时必须终止并等待子进程退出，避免遗留 FFmpeg 进程。
+FFmpeg 进程采用 RTSP TCP 传输，标准输出仅保留有限大小的帧缓冲；若输出异常、进程退出或十秒看门狗超时，玩家进入“重连中”状态并以退避定时器重启。关闭工作台、注销或应用退出时必须终止并等待子进程退出，避免遗留 FFmpeg 进程。
 
 ## 6. PTZ 设计
 

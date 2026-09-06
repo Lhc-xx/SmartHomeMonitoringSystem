@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QFrame>
@@ -16,7 +17,9 @@
 #include "network/TcpClient.h"
 #include "service/UserService.h"
 #include "ui/LoginWidget.h"
+#include "ui/MonitoringDashboard.h"
 #include "ui_MainWindow.h"
+#include "video/CameraConfig.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -24,6 +27,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_tcpClient(nullptr)
     , m_userService(nullptr)
     , m_loginWidget(nullptr)
+    , m_dashboard(nullptr)
     , m_dataPage(nullptr)
     , m_deviceModel(nullptr)
     , m_recordModel(nullptr)
@@ -150,6 +154,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_tcpClient = new TcpClient(this);
     m_userService = new UserService(m_tcpClient, this);
     m_loginWidget = new LoginWidget(m_userService, this);
+    m_dashboard = new MonitoringDashboard(this);
     m_dataPage = createDataPage();
     /*
      * 数据页创建时已经以 MainWindow 为父对象，但此时它还不是中央控件。
@@ -157,12 +162,17 @@ MainWindow::MainWindow(QWidget *parent)
      * 从而形成一块与登录页纯白背景颜色不同的浅色方框。
      */
     m_dataPage->hide();
+    m_dashboard->hide();
     setCentralWidget(m_loginWidget);
 
     connect(m_userService, &UserService::loginSuccess, this, &MainWindow::showDataPage);
     connect(m_userService, &UserService::deviceListReceived, this, &MainWindow::updateDevices);
     connect(m_userService, &UserService::recordListReceived, this, &MainWindow::updateRecords);
     connect(m_userService, &UserService::requestFailed, this, &MainWindow::showRequestError);
+    connect(m_dashboard, &MonitoringDashboard::requestDeviceList,
+            this, &MainWindow::requestDevices);
+    connect(m_dashboard, &MonitoringDashboard::requestRecordList,
+            this, &MainWindow::requestRecords);
 
     /*
      * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
@@ -280,10 +290,26 @@ QWidget *MainWindow::createDataPage()
 void MainWindow::showDataPage(quint64 userId)
 {
     /* 登录成功仅切换到元数据页；用户可随后主动发起每个数据请求。 */
-    setCentralWidget(m_dataPage);
-    /* 数据页在登录阶段被显式隐藏，成为中央控件后必须恢复可见。 */
-    m_dataPage->show();
-    m_dataStatus->setText(QStringLiteral("用户 %1 已登录，请先获取设备列表。").arg(userId));
+    m_dataPage->hide();
+    setCentralWidget(m_dashboard);
+    m_dashboard->show();
+
+    QString configPath = qEnvironmentVariable("SMARTHOME_CAMERA_CONFIG");
+    if (configPath.isEmpty()) {
+        configPath = QCoreApplication::applicationDirPath()
+            + QStringLiteral("/conf/cameras.local.conf");
+    }
+    QString configError;
+    const QList<CameraConfig> configs = loadCameraConfigs(configPath, &configError);
+    m_dashboard->setCameraConfigs(configs);
+    m_dashboard->startPreview();
+    if (!configError.isEmpty()) {
+        m_dataStatus->setText(QStringLiteral("用户 %1 已登录；%2").arg(QString::number(userId), configError));
+    } else {
+        m_dataStatus->setText(QStringLiteral("用户 %1 已登录，监控工作台已启动").arg(userId));
+    }
+    /* 登录成功后自动请求设备列表，设备树和旧数据模型同时获得服务端数据。 */
+    m_userService->requestDeviceList();
 }
 
 void MainWindow::requestDevices()
@@ -324,6 +350,7 @@ void MainWindow::requestRecords()
 void MainWindow::updateDevices(const QList<ClientProtocol::DeviceInfo> &devices)
 {
     m_deviceModel->setDevices(devices);
+    m_dashboard->setDevices(devices);
     m_dataStatus->setText(QStringLiteral("已收到 %1 个设备。").arg(devices.size()));
 }
 
@@ -341,5 +368,9 @@ void MainWindow::showRequestError(const QString &reason)
 MainWindow::~MainWindow()
 {
     /* 业务对象均拥有 MainWindow 父对象；ui 不是 QObject，需显式释放。 */
+    /* 先停止工作台中的 FFmpeg 子进程，再释放 Qt 对象，避免残留视频进程。 */
+    if (m_dashboard != nullptr) {
+        m_dashboard->stopPreview();
+    }
     delete ui;
 }

@@ -70,3 +70,8 @@ Thumbs.db
 # --------
 *.dll
 *.exe
+
+# 摄像头账号、密码和本地地址只允许存在于运行机器，禁止进入 Git。
+conf/*.local.conf
+conf/*.local.ini
+ffmpeg.local.ini
