@@ -45,6 +45,8 @@ int main() {
     expect(requiresAuth(MessageType::RECORD_QUERY_REQUEST), "record query requires auth");
     expect(requiresAuth(MessageType::STREAM_START_REQUEST), "stream start requires auth");
     expect(requiresAuth(MessageType::STREAM_STOP_REQUEST), "stream stop requires auth");
+    expect(requiresAuth(MessageType::RECORD_START_REQUEST), "record start requires auth");
+    expect(requiresAuth(MessageType::RECORD_STOP_REQUEST), "record stop requires auth");
 
     // 2) responseTypeFor
     expect(responseTypeFor(MessageType::DEVICE_LIST_REQUEST) ==
@@ -59,6 +61,12 @@ int main() {
     expect(responseTypeFor(MessageType::STREAM_STOP_REQUEST) ==
                static_cast<uint16_t>(MessageType::STREAM_STOP_RESPONSE),
            "stream stop -> stream stop response");
+    expect(responseTypeFor(MessageType::RECORD_START_REQUEST) ==
+               static_cast<uint16_t>(MessageType::RECORD_START_RESPONSE),
+           "record start -> record start response");
+    expect(responseTypeFor(MessageType::RECORD_STOP_REQUEST) ==
+               static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE),
+           "record stop -> record stop response");
     expect(responseTypeFor(MessageType::REGISTER_REQUEST) == 0,
            "register has no gated response type");
 
@@ -100,6 +108,20 @@ int main() {
                "stream stop unauthorized value built");
         expect(decodeInt32BE(value) == static_cast<int32_t>(ErrorCode::UNAUTHORIZED),
                "stream stop unauthorized == UNAUTHORIZED");
+    }
+    {
+        std::vector<uint8_t> value;
+        expect(buildUnauthorizedValue(MessageType::RECORD_START_REQUEST, value),
+               "record start unauthorized value built");
+        expect(decodeInt32BE(value) == static_cast<int32_t>(ErrorCode::UNAUTHORIZED),
+               "record start unauthorized == UNAUTHORIZED");
+    }
+    {
+        std::vector<uint8_t> value;
+        expect(buildUnauthorizedValue(MessageType::RECORD_STOP_REQUEST, value),
+               "record stop unauthorized value built");
+        expect(decodeInt32BE(value) == static_cast<int32_t>(ErrorCode::UNAUTHORIZED),
+               "record stop unauthorized == UNAUTHORIZED");
     }
 
     // 6) 非受保护请求不构建 value

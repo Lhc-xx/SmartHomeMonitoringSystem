@@ -18,12 +18,14 @@
 
 namespace smart_home {
 
-// 需要登录才能访问的消息类型：设备列表 / 录像查询 / 推流 / 停流。
+// 需要登录才能访问的消息类型：设备列表 / 录像查询 / 推流 / 停流 / 录像开关。
 inline bool requiresAuth(MessageType type) {
     return type == MessageType::DEVICE_LIST_REQUEST ||
            type == MessageType::RECORD_QUERY_REQUEST ||
            type == MessageType::STREAM_START_REQUEST ||
-           type == MessageType::STREAM_STOP_REQUEST;
+           type == MessageType::STREAM_STOP_REQUEST ||
+           type == MessageType::RECORD_START_REQUEST ||
+           type == MessageType::RECORD_STOP_REQUEST;
 }
 
 // 请求类型 -> 响应类型；未知类型返回 0。
@@ -37,6 +39,10 @@ inline uint16_t responseTypeFor(MessageType type) {
         return static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
     case MessageType::STREAM_STOP_REQUEST:
         return static_cast<uint16_t>(MessageType::STREAM_STOP_RESPONSE);
+    case MessageType::RECORD_START_REQUEST:
+        return static_cast<uint16_t>(MessageType::RECORD_START_RESPONSE);
+    case MessageType::RECORD_STOP_REQUEST:
+        return static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
     default:
         return 0;
     }
@@ -54,7 +60,9 @@ inline bool buildUnauthorizedValue(MessageType requestType,
         return RecordProtocol::encodeRecordQueryResponse(
             ErrorCode::UNAUTHORIZED, std::vector<RecordInfo>(), value);
     case MessageType::STREAM_START_REQUEST:
-    case MessageType::STREAM_STOP_REQUEST: {
+    case MessageType::STREAM_STOP_REQUEST:
+    case MessageType::RECORD_START_REQUEST:
+    case MessageType::RECORD_STOP_REQUEST: {
         int32_t code = htonl(static_cast<int32_t>(ErrorCode::UNAUTHORIZED));
         uint8_t *p = reinterpret_cast<uint8_t *>(&code);
         value.assign(p, p + 4);
