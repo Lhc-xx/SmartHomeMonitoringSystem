@@ -118,7 +118,7 @@ make -C server test
 
 ### 配置
 
-- 配置模板：`server/conf/server.conf.example`，本地复制为 `server.conf` 使用。
+- 配置文件：`server/conf/server.conf`（已脱敏，直接使用，禁止填真实密码）。
 - 默认项：`ip=127.0.0.1`、`port=7777`、`thread_num=4`、`task_num=10000`、`video_path=./data/`、`log_file=./log/server.log`。
 - 配置读取由 `server/src/config.cc` 实现，`Config` 的取值方法均带默认值，加载失败不阻止启动。
 
@@ -150,7 +150,7 @@ make -C server test
 
 ## 六、注意事项
 
-- 禁止提交真实密码、token、摄像头账号/地址、密钥；配置用 `.example` 脱敏模板。
+- 禁止提交真实密码、token、摄像头账号/地址、密钥；配置直接提交脱敏的 `server.conf` / `client.conf`。
 - 公共协议/数据结构先更新 `common/` 与 `docs/protocol/`，再由各端分别实现，避免两端各写一套不一致。
 - 涉及 TLV、数据库、媒体包改动，需附协议说明/SQL/测试数据。
 - 每天 18:00 前完成：提交个人分支 + 至少一次前后端联调 + 提交测试日志/截图/可复现命令 + 记录未解决问题与次日负责人。
