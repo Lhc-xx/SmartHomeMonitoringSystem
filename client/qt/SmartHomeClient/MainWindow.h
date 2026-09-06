@@ -6,6 +6,8 @@
 #include "protocol/ClientProtocol.h"
 
 class DeviceModel;
+class QCheckBox;
+class QDateTimeEdit;
 class QListView;
 class QLabel;
 class LoginWidget;
@@ -52,6 +54,9 @@ private:
     QListView *m_deviceList;
     QLabel *m_dataStatus;
     QPushButton *m_recordQueryButton;
+    QCheckBox *m_allTimeCheckBox;
+    QDateTimeEdit *m_recordStartEdit;
+    QDateTimeEdit *m_recordEndEdit;
 };
 
 #endif // MAINWINDOW_H

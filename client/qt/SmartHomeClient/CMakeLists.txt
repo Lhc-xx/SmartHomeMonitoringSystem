@@ -78,4 +78,56 @@ if(BUILD_TESTING)
     target_link_libraries(NetworkBehaviorTest PRIVATE Qt5::Core Qt5::Network Qt5::Test)
     target_compile_features(NetworkBehaviorTest PRIVATE cxx_std_11)
     add_test(NAME NetworkBehaviorTest COMMAND NetworkBehaviorTest)
+
+    #[[
+    服务层测试只使用本机临时 QTcpServer 驱动异步状态机，
+    不启动项目服务器，也不会连接或修改真实数据库。
+    ]]
+    add_executable(UserServiceTest
+        tests/UserServiceTest.cpp
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+    )
+    target_include_directories(UserServiceTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(UserServiceTest PRIVATE Qt5::Network Qt5::Test)
+    target_compile_features(UserServiceTest PRIVATE cxx_std_11)
+    add_test(NAME UserServiceTest COMMAND UserServiceTest)
+
+    #[[
+    主窗口测试只检查 B 数据页控件和交互状态；通过环境变量将连接目标
+    固定为本机无服务端口，确保测试不会访问远程服务器或摄像头。
+    ]]
+    add_executable(MainWindowTest
+        tests/MainWindowTest.cpp
+        MainWindow.cpp
+        MainWindow.h
+        MainWindow.ui
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+        model/DeviceModel.cpp
+        model/DeviceModel.h
+        model/RecordModel.cpp
+        model/RecordModel.h
+        ui/LoginWidget.cpp
+        ui/LoginWidget.h
+        ui/LoginWidget.ui
+    )
+    target_include_directories(MainWindowTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(MainWindowTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
+    target_compile_features(MainWindowTest PRIVATE cxx_std_11)
+    add_test(NAME MainWindowTest COMMAND MainWindowTest)
 endif()

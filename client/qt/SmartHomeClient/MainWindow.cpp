@@ -1,5 +1,8 @@
 #include "MainWindow.h"
 
+#include <QCheckBox>
+#include <QDateTime>
+#include <QDateTimeEdit>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -27,6 +30,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_deviceList(nullptr)
     , m_dataStatus(nullptr)
     , m_recordQueryButton(nullptr)
+    , m_allTimeCheckBox(nullptr)
+    , m_recordStartEdit(nullptr)
+    , m_recordEndEdit(nullptr)
 {
     /* 保留既有 Designer 主窗口外壳，再在中央区域切换登录页和数据页。 */
     ui->setupUi(this);
@@ -65,6 +71,11 @@ MainWindow::MainWindow(QWidget *parent)
             border: 1px solid #d5e7dc;
             border-radius: 16px;
         }
+        QFrame#recordFilterBar {
+            background: #ffffff;
+            border: 1px solid #d5e7dc;
+            border-radius: 12px;
+        }
         QLabel#toolbarTitle {
             color: #2d5e47;
             font-size: 13px;
@@ -84,6 +95,22 @@ MainWindow::MainWindow(QWidget *parent)
         }
         QPushButton:pressed {
             background: #086b47;
+        }
+        QDateTimeEdit {
+            min-height: 24px;
+            padding: 5px 8px;
+            color: #234c39;
+            background: #ffffff;
+            border: 1px solid #c9ded2;
+            border-radius: 6px;
+        }
+        QDateTimeEdit:disabled {
+            color: #8aa095;
+            background: #eef4f1;
+        }
+        QCheckBox {
+            color: #2d5e47;
+            spacing: 6px;
         }
         QListView {
             background: #ffffff;
@@ -180,6 +207,49 @@ QWidget *MainWindow::createDataPage()
     buttonLayout->addStretch();
     rootLayout->addWidget(toolbar);
 
+    /*
+     * 录像时间条件属于 B 的元数据查询接口，不涉及录像文件创建或播放。
+     * 默认查询全部时间，用户取消勾选后可输入起止时间；两端统一使用
+     * yyyy-MM-dd HH:mm:ss，避免本地化显示格式导致服务端 DATETIME 解析不一致。
+     */
+    QFrame *filterBar = new QFrame(page);
+    filterBar->setObjectName(QStringLiteral("recordFilterBar"));
+    QHBoxLayout *filterLayout = new QHBoxLayout(filterBar);
+    filterLayout->setContentsMargins(14, 8, 14, 8);
+    filterLayout->setSpacing(8);
+    QLabel *filterTitle = new QLabel(QStringLiteral("录像时间"), filterBar);
+    m_allTimeCheckBox = new QCheckBox(QStringLiteral("全部时间"), filterBar);
+    m_allTimeCheckBox->setObjectName(QStringLiteral("allTimeCheckBox"));
+    m_allTimeCheckBox->setChecked(true);
+
+    const QDateTime now = QDateTime::currentDateTime();
+    m_recordStartEdit = new QDateTimeEdit(now.addDays(-1), filterBar);
+    m_recordStartEdit->setObjectName(QStringLiteral("recordStartEdit"));
+    m_recordStartEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    m_recordStartEdit->setCalendarPopup(true);
+    m_recordStartEdit->setEnabled(false);
+    m_recordEndEdit = new QDateTimeEdit(now, filterBar);
+    m_recordEndEdit->setObjectName(QStringLiteral("recordEndEdit"));
+    m_recordEndEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    m_recordEndEdit->setCalendarPopup(true);
+    m_recordEndEdit->setEnabled(false);
+
+    filterLayout->addWidget(filterTitle);
+    filterLayout->addWidget(m_allTimeCheckBox);
+    filterLayout->addSpacing(8);
+    filterLayout->addWidget(new QLabel(QStringLiteral("开始"), filterBar));
+    filterLayout->addWidget(m_recordStartEdit);
+    filterLayout->addWidget(new QLabel(QStringLiteral("结束"), filterBar));
+    filterLayout->addWidget(m_recordEndEdit);
+    filterLayout->addStretch();
+    rootLayout->addWidget(filterBar);
+
+    connect(m_allTimeCheckBox, &QCheckBox::toggled, this, [this](bool allTime) {
+        /* “全部时间”不发送人为边界，服务端会使用安全的 DATETIME 默认范围。 */
+        m_recordStartEdit->setEnabled(!allTime);
+        m_recordEndEdit->setEnabled(!allTime);
+    });
+
     /* 两个列表并排呈现，设备选择决定录像查询使用的 deviceId。 */
     QSplitter *splitter = new QSplitter(page);
     m_deviceList = new QListView(splitter);
@@ -234,9 +304,21 @@ void MainWindow::requestRecords()
         m_dataStatus->setText(QStringLiteral("所选设备标识无效。"));
         return;
     }
-    /* 空时间串明确表达当前一期查询全部时间范围，仍按协议写入两个 length-string。 */
+    QString startTime;
+    QString endTime;
+    if (!m_allTimeCheckBox->isChecked()) {
+        if (m_recordStartEdit->dateTime() > m_recordEndEdit->dateTime()) {
+            m_dataStatus->setText(QStringLiteral("开始时间不能晚于结束时间。"));
+            return;
+        }
+        const QString wireFormat = QStringLiteral("yyyy-MM-dd HH:mm:ss");
+        startTime = m_recordStartEdit->dateTime().toString(wireFormat);
+        endTime = m_recordEndEdit->dateTime().toString(wireFormat);
+    }
+
+    /* 空字符串明确表达全部时间；指定范围则使用服务端可直接比较的固定格式。 */
     m_dataStatus->setText(QStringLiteral("正在请求录像元数据…"));
-    m_userService->requestRecordQuery(deviceId, QString(), QString());
+    m_userService->requestRecordQuery(deviceId, startTime, endTime);
 }
 
 void MainWindow::updateDevices(const QList<ClientProtocol::DeviceInfo> &devices)

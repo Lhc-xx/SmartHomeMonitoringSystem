@@ -194,7 +194,17 @@ void UserService::onTcpError(const QString &message)
 
 void UserService::onDisconnected()
 {
-    if (m_pending != PendingRequest::None) failPending(QStringLiteral("与服务器的连接已断开。"));
+    /*
+     * TCP 连接一旦断开，当前连接所承载的认证上下文就不能继续使用。
+     * 即使服务端 token 尚未过期，也必须要求用户在新连接上重新登录，
+     * 避免资源请求携带旧 userId/token 并产生难以判断的越权或过期错误。
+     */
+    if (m_pending != PendingRequest::None) {
+        failPending(QStringLiteral("与服务器的连接已断开。"));
+    }
+    m_userId = 0;
+    m_token.clear();
+    m_receiveBuffer.clear();
 }
 
 void UserService::setRequestTimeout(int ms)
