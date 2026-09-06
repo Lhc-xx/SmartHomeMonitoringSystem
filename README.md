@@ -26,7 +26,7 @@ SmartHomeMonitoringSystem/
 │   ├── src/                       # 公共实现
 │   └── tests/                     # 公共模块测试
 ├── server/                        # C++11 服务器【A 主导】
-│   ├── conf/server.conf.example   # 脱敏配置模板（本地复制为 server.conf）
+│   ├── conf/server.conf         # 脱敏配置（直接使用，禁止填真实密码）
 │   ├── include/                   # 服务器头文件
 │   ├── src/                       # 网络、配置、日志、数据库、媒体等实现
 │   ├── log/                       # 运行日志（仅 .gitkeep）
@@ -40,7 +40,7 @@ SmartHomeMonitoringSystem/
 │   │   └── CMakeLists.txt
 │   └── qt/                        # Windows Qt 图形客户端【B/D 界面，C 解码，A 网络层】
 │       ├── include/  src/  forms/  resources/  tests/
-│       ├── conf/client.conf.example
+│       ├── conf/client.conf
 │       └── CMakeLists.txt         # 接入 Qt 后补充 find_package(Qt5 ...)
 ├── database/                      # SQL、迁移和种子数据【B】
 │   ├── schema/                    # 完整表结构 SQL
@@ -101,7 +101,7 @@ make -C server test
 - `dev-integration`：日常集成和联调分支。
 - `dev-lhc`、`dev-lqw`、`dev-pyj`、`dev-xgq`：个人功能分支。
 - 提交信息建议使用 `feat:`、`fix:`、`test:`、`docs:` 前缀。
-- 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件使用 `.example`。
+- 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件直接提交脱敏的 `server.conf` / `client.conf`。
 - 公共协议和数据结构先更新 `common/` 与 `docs/protocol/`，再分别实现服务器和客户端。
 
 ## 当前最小验收标准
