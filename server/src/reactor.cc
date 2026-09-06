@@ -200,6 +200,10 @@ namespace smart_home {
         _authHandler = handler;
     }
 
+    void Reactor::setResourceHandler(ResourceHandler* handler){
+        _resourceHandler = handler;
+    }
+
     void Reactor::handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg){
         // 认证请求（注册/登录）：交给 B 的 AuthHandler（PBKDF2 校验 + token 会话）。
         if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST ||
