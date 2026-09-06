@@ -10,15 +10,16 @@ B 成员负责协议、数据库、认证、设备列表和录像查询元数据
 - 用户注册、PBKDF2 密码摘要、登录验证和 token 会话；
 - AuthHandler、DeviceService、RecordService、ResourceHandler；
 - Qt 注册/登录、登录状态、DeviceModel、RecordModel 和录像时间查询条件；
+- Qt 端摄像头配置、QProcess+FFmpeg 实时预览工作台和球机八方向控制适配；
 - Common、Qt 和 Linux/MySQL 环境中的 B 自动化测试。
 
-明确未实现 Reactor、ThreadPool、Connection 生命周期、FFmpeg 拉流、RingBuffer、媒体转发、视频解码、HTTP、JSON 和云台控制。
+明确未实现 Reactor、ThreadPool、Connection 生命周期、服务端 FFmpeg/RingBuffer/媒体转发、服务端视频解码、HTTP、JSON 和云台服务端路由；本次仅实现 Qt 客户端直连摄像头的预览与已验证的八方向请求适配。
 
 ## 2. 系统架构
 
 ```text
 Qt 客户端
-  LoginWidget / DeviceModel / RecordModel
+  LoginWidget / MonitoringDashboard / DeviceModel / RecordModel
              |
        Qt UserService
              |
@@ -40,6 +41,9 @@ Qt 客户端
              |
            MySQL
  users / user_sessions / devices / records
+
+摄像头预览链路：CameraConfig → RtspPlayer → 本机 ffmpeg.exe → JPEG → VideoWidget；
+球机控制链路：设备树选择球机 → PtzClient → 摄像头 Web API（只在用户按住方向键时发送）。
 ```
 
 Reactor 到 B Handler 的路由由 A 成员负责；B Handler 不直接处理 socket。录像查询只返回元数据，视频文件生成和播放由 C/D 模块负责。
@@ -69,6 +73,8 @@ Reactor 到 B Handler 的路由由 A 成员负责；B Handler 不直接处理 so
 - 录像查询同时限制设备归属和开始/结束时间；
 - Qt DeviceModel 和 RecordModel 展示设备及录像元数据；
 - Qt 支持全部时间或指定起止时间查询，并阻止倒置时间范围。
+- Qt 监控工作台提供四宫格、事件列表、设备树和八方向云台按钮；
+- 摄像头账号、密码和 RTSP 地址只放在被忽略的本地 INI 配置中，不进入 Git。
 
 ### Qt 客户端
 
@@ -113,6 +119,10 @@ TcpClient 只负责连接、发送、断开和原始收包；ClientProtocol 负�
 
 DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换为 Qt View 可消费的数据。UI 只触发请求并展示状态，数据对象不依赖播放组件。
 
+### Qt实时预览与云台
+
+每路 `RtspPlayer` 通过 `QProcess` 启动本机 FFmpeg，使用 RTSP over TCP 输出受限尺寸的 MJPEG 字节流；Qt 在事件循环中拆分 JPEG 起止标记并交给 `VideoWidget` 等比绘制。`PtzClient` 先只读探测 `/api/ptz/baseConf`，球机被选中且能力探测成功后，方向按钮按下发送开始请求、释放/失焦发送停止请求。
+
 ## 5. 测试结果
 
 ### PASS
@@ -121,26 +131,26 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 |---|---|---|
 | Windows MinGW32 | Common 顶层独立构建与 CTest | 5/5 PASS |
 | Qt 5.14.2 MinGW32 | SmartHomeClient 全量构建 | PASS |
-| Qt 5.14.2 MinGW32 | ClientProtocol、网络行为、UserService、MainWindow | 4/4 PASS |
+| Qt 5.14.2 MinGW32 | SmartHomeClient 全部 9 项 CTest | 9/9 PASS |
 | Ubuntu 22.04 + MySQL | 完整 `smart_home_server` 构建与链接 | PASS |
 | Ubuntu 22.04 + MySQL | Common、Server 与数据库 CTest | 10/10 PASS |
 | Ubuntu 22.04 + MySQL | mysql、UserService、AuthHandler、ResourceHandler | 4/4 PASS |
 | Ubuntu 22.04 + MySQL | 脱敏 `b_demo_data.sql.example` | PASS |
 
-数据库测试覆盖连接/查询/事务、正常注册、重复用户、非法参数、正确登录、错误密码、错误用户、token 非明文落库、设备归属、设备状态 `1 → online` 转换、录像时间过滤和错误 token。
+数据库测试覆盖连接/查询/事务、正常注册、重复用户、非法参数、正确登录、错误密码、错误用户、token 非明文落库、设备归属、设备状态 `1 → online` 转换、录像时间过滤和错误 token。Qt 测试另外覆盖摄像头配置校验、JPEG 拆包、视频控件、云台请求、工作台和主窗口构造。
 
 ### FAIL
 
 无。最新 `dev-integration` 已补齐 `Reactor::setResourceHandler`，本分支合并后完整服务器构建、链接和 10 项 CTest 均通过。
 
-### BLOCKED_BY_ENV
+### BLOCKED_BY_ENV 与联调风险
 
 - Windows 没有 MySQL Server 开发头文件/库，因此服务端不在 Windows 编译；已经在 Ubuntu/MySQL 环境完成 B 测试；
-- 测试摄像头位于 `192.168.2.x` 私网，而当前开发机不在该网段，RTSP 访问属于 C 的联调环境阻断，不影响 B 元数据测试。
+- 两路测试摄像头的 RTSP 实测已能由本机 FFmpeg 拉取单帧（不是环境阻断）；实际长时间稳定性仍受摄像头网络、账号权限和设备固件影响。云台控制接口的具体参数由设备 Web API 决定，当前代码只自动探测能力，不会自动触发移动。
 
 ## 6. 面试介绍版本
 
-我负责智能家居监控系统的 B 模块，主要包括 TLV 协议、MySQL 数据访问、用户认证，以及 Qt 端的注册登录、设备列表和录像查询模型。协议层设计了固定 12 字节 Header，包含消息类型、版本、Payload 长度和请求 ID，所有整数都使用网络大端序；接收端能够处理半包、粘包、非法版本和超大 Length。认证方面，注册密码不会明文落库，而是使用随机 salt 和 PBKDF2-HMAC-SHA256 进行十万次派生；登录校验成功后生成随机 token，数据库只保存 token 的 SHA-512 摘要和有效期。服务端通过 AuthHandler 和 ResourceHandler 将协议请求交给 UserService、DeviceService、RecordService，再通过 MySQLClient 完成事务和查询。Qt 端保持 UI、业务、协议、网络四层分离，DeviceModel 和 RecordModel 使用 Qt Model/View 展示数据。我还补充了 Common、Qt 和 MySQL 集成测试，覆盖注册、重复用户、错误密码、token 鉴权、设备归属和录像时间过滤。这样完成了从注册、登录到设备及录像元数据查询的 B 模块闭环，同时没有越界实现 Reactor、FFmpeg 或云台功能。
+我负责智能家居监控系统的 B 模块，主要包括 TLV 协议、MySQL 数据访问、用户认证，以及 Qt 端的注册登录、设备列表和录像查询模型。协议层设计了固定 12 字节 Header，包含消息类型、版本、Payload 长度和请求 ID，所有整数都使用网络大端序；接收端能够处理半包、粘包、非法版本和超大 Length。认证方面，注册密码不会明文落库，而是使用随机 salt 和 PBKDF2-HMAC-SHA256 进行十万次派生；登录校验成功后生成随机 token，数据库只保存 token 的 SHA-512 摘要和有效期。服务端通过 AuthHandler 和 ResourceHandler 将协议请求交给 UserService、DeviceService、RecordService，再通过 MySQLClient 完成事务和查询。Qt 端保持 UI、业务、协议、网络四层分离，DeviceModel 和 RecordModel 使用 Qt Model/View 展示数据；登录后由 MonitoringDashboard 管理四路画面，RtspPlayer 通过本机 FFmpeg 把两路 RTSP 转成 JPEG，VideoWidget 负责绘制，PtzClient 负责球机能力探测和八方向按住/松开控制。我还补充了 Common、Qt 和 MySQL 集成测试，覆盖注册、重复用户、错误密码、token 鉴权、设备归属、录像时间过滤、JPEG 拆包和工作台构造。这样完成了从注册、登录到设备及录像元数据查询，以及 Qt 端实时预览入口的 B 模块闭环，同时没有越界修改 Reactor、服务端媒体转发、HTTP 或 JSON。
 
 ## 7. 当前风险与交付建议
 
