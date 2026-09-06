@@ -6,6 +6,7 @@
 #include "protocol/ClientProtocol.h"
 
 class TcpClient;
+class QTimer;
 
 /*
  * UserService 在 UI 与 TcpClient 之间编排认证和 B 数据页请求。
@@ -24,6 +25,9 @@ public:
     void requestRecordQuery(quint64 deviceId, const QString &startTime,
                             const QString &endTime);
 
+    /* 设置单次请求的等待超时（毫秒），超时后通过对应失败信号上报。 */
+    void setRequestTimeout(int ms);
+
 signals:
     void registerSuccess();
     void registerFailed(const QString &reason);
@@ -37,6 +41,7 @@ private slots:
     void onDataReceived(const QByteArray &data);
     void onTcpError(const QString &message);
     void onDisconnected();
+    void onRequestTimeout();
 
 private:
     /* 串行请求状态确保新操作不会覆盖正在等待的 requestId 和响应缓冲。 */
@@ -56,6 +61,8 @@ private:
     quint32 m_nextRequestId;
     quint64 m_userId;
     QByteArray m_token;
+    QTimer *m_requestTimer;
+    int m_requestTimeoutMs;
 };
 
 #endif // USERSERVICE_H

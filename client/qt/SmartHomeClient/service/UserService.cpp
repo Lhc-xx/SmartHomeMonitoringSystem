@@ -2,6 +2,8 @@
 
 #include "network/TcpClient.h"
 
+#include <QTimer>
+
 UserService::UserService(TcpClient *tcpClient, QObject *parent)
     : QObject(parent)
     , m_tcpClient(tcpClient)
@@ -9,6 +11,8 @@ UserService::UserService(TcpClient *tcpClient, QObject *parent)
     , m_pendingRequestId(0)
     , m_nextRequestId(1)
     , m_userId(0)
+    , m_requestTimer(new QTimer(this))
+    , m_requestTimeoutMs(5000)
 {
     /* UserService 只订阅 TcpClient 的高层信号，始终不直接触碰 QTcpSocket。 */
     if (m_tcpClient != nullptr) {
@@ -16,6 +20,9 @@ UserService::UserService(TcpClient *tcpClient, QObject *parent)
         connect(m_tcpClient, &TcpClient::errorOccurred, this, &UserService::onTcpError);
         connect(m_tcpClient, &TcpClient::disconnected, this, &UserService::onDisconnected);
     }
+
+    m_requestTimer->setSingleShot(true);
+    connect(m_requestTimer, &QTimer::timeout, this, &UserService::onRequestTimeout);
 }
 
 quint32 UserService::nextRequestId()
@@ -47,6 +54,7 @@ bool UserService::beginRequest(PendingRequest type, const QByteArray &packet,
     m_pending = type;
     m_pendingRequestId = requestId;
     m_tcpClient->sendData(packet);
+    m_requestTimer->start(m_requestTimeoutMs);
     return true;
 }
 
@@ -122,6 +130,8 @@ void UserService::onDataReceived(const QByteArray &data)
         /* 串行模型下，仅处理当前等待 requestId；其他完整包已安全消费但不会覆盖状态。 */
         if (m_pending == PendingRequest::None || packet.requestId != m_pendingRequestId) continue;
 
+        m_requestTimer->stop();
+
         if (m_pending == PendingRequest::Register) {
             ClientProtocol::RegisterResponse response;
             if (!ClientProtocol::decodeRegisterResponse(packet.raw, response)) {
@@ -187,8 +197,21 @@ void UserService::onDisconnected()
     if (m_pending != PendingRequest::None) failPending(QStringLiteral("与服务器的连接已断开。"));
 }
 
+void UserService::setRequestTimeout(int ms)
+{
+    m_requestTimeoutMs = ms < 0 ? 0 : ms;
+}
+
+void UserService::onRequestTimeout()
+{
+    if (m_pending != PendingRequest::None) {
+        failPending(QStringLiteral("请求超时：服务器未在 %1 毫秒内响应。").arg(m_requestTimeoutMs));
+    }
+}
+
 void UserService::failPending(const QString &reason)
 {
+    m_requestTimer->stop();
     const PendingRequest previous = m_pending;
     m_pending = PendingRequest::None;
     m_pendingRequestId = 0;

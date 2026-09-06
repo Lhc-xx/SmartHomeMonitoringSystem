@@ -10,7 +10,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt5 REQUIRED COMPONENTS Widgets Network)
+find_package(Qt5 REQUIRED COMPONENTS Widgets Network Test)
 include(CTest)
 
 add_executable(SmartHomeClient
@@ -61,4 +61,21 @@ if(BUILD_TESTING)
     target_link_libraries(ClientProtocolTest PRIVATE Qt5::Network)
     target_compile_features(ClientProtocolTest PRIVATE cxx_std_11)
     add_test(NAME ClientProtocolTest COMMAND ClientProtocolTest)
+
+    add_executable(NetworkBehaviorTest
+        tests/NetworkBehaviorTest.cpp
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+    )
+    target_include_directories(NetworkBehaviorTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(NetworkBehaviorTest PRIVATE Qt5::Core Qt5::Network Qt5::Test)
+    target_compile_features(NetworkBehaviorTest PRIVATE cxx_std_11)
+    add_test(NAME NetworkBehaviorTest COMMAND NetworkBehaviorTest)
 endif()

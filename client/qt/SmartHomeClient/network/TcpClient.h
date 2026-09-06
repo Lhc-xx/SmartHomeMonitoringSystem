@@ -7,6 +7,7 @@
 #include <QString>
 
 class QTcpSocket;
+class QTimer;
 
 /*
  * TcpClient 类职责：
@@ -14,40 +15,25 @@ class QTcpSocket;
  * 作为客户端唯一的 TCP 通信封装，负责管理 QTcpSocket 的生命周期、
  * 转发连接/断开/收包事件，并将底层网络错误转换成可直接展示给界面的文本。
  * 业务层只能调用本类公开接口，不能直接操作 QTcpSocket。
+ *
+ * 断线重连：默认开启。连接意外断开或连接失败时按指数退避自动重试，
+ * 通过 setReconnectDelay / setReconnectMaxAttempts 调整节奏，重连过程经
+ * reconnecting() / reconnectFailed() 信号上报；主动 disconnectServer() 不会触发重连。
  */
 class TcpClient : public QObject
 {
     Q_OBJECT
 
 public:
-    /*
-     * 采用 QObject 父对象机制管理 TcpClient，避免主窗口销毁时遗漏释放网络对象。
-     */
     explicit TcpClient(QObject *parent = nullptr);
 
-    /*
-     * 异步发起 TCP 连接。
-     *
-     * QTcpSocket 的连接过程由 Qt 事件循环驱动，调用后通过 connected() 或
-     * errorOccurred() 通知结果，避免阻塞界面线程。
-     */
     void connectServer(const QString &ip, quint16 port);
-
-    /*
-     * 将完整的业务协议字节流写入 Qt 的发送缓冲区。
-     *
-     * 本方法不拼接协议，也不等待网络写完成；协议层和业务层保持独立，
-     * 发送前的连接状态与写入失败会通过 errorOccurred() 上报。
-     */
     void sendData(const QByteArray &data);
-
-    /*
-     * 请求正常断开当前连接。
-     *
-     * 使用 disconnectFromHost() 可让 Qt 先处理已经写入缓冲区的数据，
-     * 后续断开结果仍统一通过 disconnected() 或 errorOccurred() 通知。
-     */
     void disconnectServer();
+
+    void setAutoReconnect(bool enabled);
+    void setReconnectDelay(int ms);
+    void setReconnectMaxAttempts(int maxAttempts);
 
 signals:
     /* TCP 三次握手完成后发出，供后续连接管理界面使用。 */
@@ -59,25 +45,36 @@ signals:
     /* 收到的原始 TCP 字节流，不在网络层假设业务消息边界。 */
     void dataReceived(const QByteArray &data);
 
-    /*
-     * 将连接、发送和异常断开错误统一转换为中文说明，
-     * 使界面无需依赖 QAbstractSocket 的底层错误枚举。
-     */
+    /* 连接、发送和异常断开错误统一转换为中文说明，供界面直接展示。 */
     void errorOccurred(const QString &message);
 
+    /* 每次计划一次重连时发出，参数为当前重连序号（从 1 开始）。 */
+    void reconnecting(int attempt);
+
+    /* 达到最大重连次数仍失败时发出，此后不再自动重连。 */
+    void reconnectFailed();
+
 private slots:
-    /* 读取当前可用字节并交给上层协议处理，保留 TCP 流式传输特性。 */
     void readData();
-
-    /* 转发 QTcpSocket 的连接成功事件，隔离底层套接字对象。 */
     void onConnected();
-
-    /* 将所有底层网络异常集中转换为界面可展示的错误文本。 */
+    void onDisconnected();
     void onSocketError(QAbstractSocket::SocketError socketError);
+    void attemptReconnect();
 
 private:
-    /* 真正执行 TCP 通信的 Qt 套接字，只由 TcpClient 管理。 */
+    void scheduleReconnect();
+    void resetReconnectState();
+
     QTcpSocket *m_socket;
+    QTimer *m_reconnectTimer;
+    QString m_ip;
+    quint16 m_port;
+    bool m_autoReconnect;
+    bool m_manualDisconnect;
+    bool m_reconnectPending;
+    int m_reconnectAttempt;
+    int m_reconnectDelayMs;
+    int m_reconnectMaxAttempts;
 };
 
 #endif // TCPCLIENT_H
