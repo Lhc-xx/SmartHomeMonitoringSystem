@@ -5,6 +5,7 @@
 #include "protocol/ErrorCode.h"
 #include "protocol/MessageType.h"
 #include "AuthHandler.h"
+#include "ResourceHandler.h"
 #include "stream_session.h"
 #include "media/mock_media_source.h"
 
@@ -28,66 +29,6 @@
 static const int IDLE_TIMEOUT_SECONDS = 60;
 
 namespace smart_home {
-    namespace {
-        // Login/register payloads are kept deliberately small and simple:
-        // username and password may be separated by NUL, '\n', or ':'.  A
-        // username-only registration is accepted for compatibility with the
-        // original client; it creates an account with an empty password.
-        bool parseCredentials(const std::vector<uint8_t> &body,
-                              std::string &username,
-                              std::string &password) {
-            if (body.empty()) {
-                return false;
-            }
-
-            std::vector<uint8_t>::const_iterator separator =
-                std::find(body.begin(), body.end(), static_cast<uint8_t>(0));
-            if (separator == body.end()) {
-                separator = std::find(body.begin(), body.end(),
-                                      static_cast<uint8_t>('\n'));
-            }
-            if (separator == body.end()) {
-                separator = std::find(body.begin(), body.end(),
-                                      static_cast<uint8_t>(':'));
-            }
-
-            const std::size_t usernameLength =
-                static_cast<std::size_t>(separator - body.begin());
-            if (usernameLength == 0 || usernameLength > 64) {
-                return false;
-            }
-
-            username.assign(body.begin(), body.begin() + usernameLength);
-            if (separator != body.end()) {
-                password.assign(separator + 1, body.end());
-            } else {
-                password.clear();
-            }
-
-            // Keep the limits in sync with the users table and avoid storing
-            // embedded NULs in credentials when a textual separator is used.
-            if (password.size() > 256 ||
-                std::find(username.begin(), username.end(), '\0') != username.end()) {
-                return false;
-            }
-            return true;
-        }
-
-        // Compare credentials without returning early on the first mismatch.
-        bool samePassword(const std::string &left, const std::string &right) {
-            const std::size_t maxLength = std::max(left.size(), right.size());
-            unsigned char difference =
-                static_cast<unsigned char>(left.size() != right.size());
-            for (std::size_t i = 0; i < maxLength; ++i) {
-                const unsigned char l = i < left.size()
-                    ? static_cast<unsigned char>(left[i]) : 0;
-                const unsigned char r = i < right.size()
-                    ? static_cast<unsigned char>(right[i]) : 0;
-                difference = static_cast<unsigned char>(difference | (l ^ r));
-            }
-            return difference == 0;
-        }
-    }
 
     Reactor::Reactor(size_t thread_num, size_t capacity)
     : _epFd(-1)
@@ -149,10 +90,6 @@ namespace smart_home {
     void Reactor::run() {
         // read/recv  write/send
         _runFlag = true;
-        // The current project has no database client yet.  Keep the account
-        // store scoped to this server run so registration and login still
-        // form a functional authentication flow without global state.
-        std::map<std::string, std::string> users;
         struct epoll_event events[64]; // 就绪事件列表
         while (_runFlag) {
             // n为就绪事件个数
@@ -264,16 +201,27 @@ namespace smart_home {
     }
 
     void Reactor::handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg){
-        // 注册请求：交给 B 的 AuthHandler
-        if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST) {
-            if(_authHandler){
+        // 认证请求（注册/登录）：交给 B 的 AuthHandler（PBKDF2 校验 + token 会话）。
+        if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST ||
+            static_cast<MessageType>(msg.type) == MessageType::LOGIN_REQUEST) {
+            if (_authHandler) {
                 TlvMessage resp = _authHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
             }
             return;
         }
 
-        // 其它类型：switch stub
+        // 资源请求（设备列表/录像查询）：交给 B 的 ResourceHandler（token 会话校验）。
+        if (static_cast<MessageType>(msg.type) == MessageType::DEVICE_LIST_REQUEST ||
+            static_cast<MessageType>(msg.type) == MessageType::RECORD_QUERY_REQUEST) {
+            if (_resourceHandler) {
+                TlvMessage resp = _resourceHandler->handle(msg);
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 流媒体请求：当前使用 mock 媒体源，后续替换为 C 的 FFmpeg 拉流源。
         TlvMessage resp;
         resp.version   = PROTOCOL_VERSION;
         resp.requestId = msg.requestId;
@@ -281,23 +229,7 @@ namespace smart_home {
         int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
 
         switch (static_cast<MessageType>(msg.type)) {
-            case MessageType::LOGIN_REQUEST:
-                resp.type = static_cast<uint16_t>(MessageType::LOGIN_RESPONSE);
-                conn->setAuthenticated(true);
-                break;
-            case MessageType::DEVICE_LIST_REQUEST:
-                resp.type = static_cast<uint16_t>(MessageType::DEVICE_LIST_RESPONSE);
-                if (!conn->isAuthenticated()) {
-                    errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
-                }
-                break;
-            case MessageType::RECORD_QUERY_REQUEST:
-                resp.type = static_cast<uint16_t>(MessageType::RECORD_QUERY_RESPONSE);
-                if (!conn->isAuthenticated()) {
-                    errCode = static_cast<int32_t>(ErrorCode::UNAUTHORIZED);
-                }
-                break;
-                        case MessageType::STREAM_START_REQUEST:
+            case MessageType::STREAM_START_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
                 {
                     // 创建假媒体源 + 流会话，启动并保存
@@ -315,12 +247,13 @@ namespace smart_home {
                 {
                     std::lock_guard<std::mutex> guard(_streamsMutex);
                     auto it = _streams.find(conn->fd());
-                    if(it != _streams.end()){
+                    if (it != _streams.end()) {
                         it->second->stop();
                         _streams.erase(it);
                     }
                 }
                 break;
+
             default:
                 resp.type = msg.type;
                 errCode   = static_cast<int32_t>(ErrorCode::UNKNOWN_MESSAGE);
@@ -329,7 +262,7 @@ namespace smart_home {
         }
 
         int32_t code = htonl(errCode);
-        uint8_t *p = reinterpret_cast<uint8_t*>(&code);
+        uint8_t *p = reinterpret_cast<uint8_t *>(&code);
         resp.value.assign(p, p + 4);
 
         conn->sendData(TlvProtocol::encode(resp));

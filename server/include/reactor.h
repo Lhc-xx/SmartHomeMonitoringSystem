@@ -12,6 +12,7 @@
 
 namespace smart_home {
     class AuthHandler;
+    class ResourceHandler;
     class StreamSession; // 流会话存储
     class Reactor{
     public:
@@ -21,10 +22,12 @@ namespace smart_home {
         void run(); // 事件循环
         void stop(); //退出事件循环
         void setAuthHandler(AuthHandler* handler);
+        void setResourceHandler(ResourceHandler* handler);
 
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
+        ResourceHandler* _resourceHandler = nullptr; // 资源处理器，由 main 注入
         std::map<int, std::shared_ptr<StreamSession>> _streams;   // fd -> 流会话
         std::mutex _streamsMutex;                                 // 保护 _streams
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);

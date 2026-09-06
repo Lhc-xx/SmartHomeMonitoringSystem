@@ -54,13 +54,6 @@ namespace smart_home{
         return ::send(_fd, data.data(), data.size(), 0);
     }
 
-    bool Connection::isAuthenticated() const{
-        return _authenticated.load(); // 原子读
-    }
-
-    void Connection::setAuthenticated(bool v){
-        _authenticated.store(v); // 原子写
-    }
 
     void Connection::updateLastActive(){
         _lastActive = time(nullptr);

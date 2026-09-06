@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <sys/types.h>
 #include <mutex>
-#include <atomic>
 #include <ctime>   // time_t / time()
 
 namespace smart_home{
@@ -21,13 +20,10 @@ namespace smart_home{
         std::vector<uint8_t> &readBuffer();
         bool readMessage(TlvMessage &msg); // 从话冲去拆出一个完整包
         size_t sendData(const std::vector<uint8_t> &data); // 发送数据
-        bool isAuthenticated() const;      // 是否已登录
-        void setAuthenticated(bool v);     // 设置登录状态
         void updateLastActive();        // 刷新最后活跃时间
         time_t lastActive() const;      // 读最后活跃时间
 
     private:
-        std::atomic<bool> _authenticated{false};       // 默认未登录
         time_t _lastActive;             // 最后活跃时间
     
     private:
