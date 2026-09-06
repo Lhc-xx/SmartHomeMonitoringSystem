@@ -1,0 +1,53 @@
+/*
+ * B 成员设备与录像查询脱敏样例。
+ *
+ * 使用前先通过注册流程创建 demo_user。本文件不创建密码、不写 token，
+ * stream_url 保持 NULL，录像路径也只是用于查询展示的虚构相对路径。
+ */
+USE smarthome;
+
+START TRANSACTION;
+
+/* 根据用户名取得归属 id；找不到用户时后续 INSERT ... SELECT 不会插入数据。 */
+SET @demo_user_id = (
+    SELECT id FROM users WHERE username = 'demo_user' LIMIT 1
+);
+
+/* 通过名称和用户归属避免重复加载样例时创建重复设备。 */
+INSERT INTO devices (
+    user_id, device_name, device_code, stream_url, device_type, status
+)
+SELECT
+    @demo_user_id, '演示摄像头', 'b-demo-camera-001', NULL, 'camera', 1
+FROM DUAL
+WHERE @demo_user_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM devices
+      WHERE user_id = @demo_user_id AND device_code = 'b-demo-camera-001'
+  );
+
+SET @demo_device_id = (
+    SELECT id FROM devices
+    WHERE user_id = @demo_user_id AND device_code = 'b-demo-camera-001'
+    LIMIT 1
+);
+
+/* 文件路径只用于 B 的元数据列表验证，不承诺文件存在或能够播放。 */
+INSERT INTO records (
+    device_id, file_path, start_time, end_time, file_size
+)
+SELECT
+    @demo_device_id,
+    './demo-records/b-demo-camera-20260906-100000.mp4',
+    '2026-09-06 10:00:00',
+    '2026-09-06 10:10:00',
+    0
+FROM DUAL
+WHERE @demo_device_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM records
+      WHERE device_id = @demo_device_id
+        AND file_path = './demo-records/b-demo-camera-20260906-100000.mp4'
+  );
+
+COMMIT;

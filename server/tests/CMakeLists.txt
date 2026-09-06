@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 project(server_tests LANGUAGES CXX)
 
+#[[
+真实数据库测试会创建并清理临时业务数据，且依赖未提交的 server.conf。
+默认只生成可执行文件；交付或联调环境显式开启后才注册进 CTest。
+]]
+option(SMARTHOME_ENABLE_DB_INTEGRATION_TESTS
+       "Enable B member integration tests that use a real MySQL database" OFF)
+
 #[[基础服务器测试保留原有 CTest 入口，但不启动服务器进程。]]
 add_executable(server_test
     Test.cc
@@ -53,3 +60,26 @@ target_link_libraries(resource_handler_test PRIVATE smart_home_common ${MYSQLCLI
     OpenSSL::Crypto pthread)
 target_compile_features(resource_handler_test PRIVATE cxx_std_11)
 target_include_directories(resource_handler_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+
+if(SMARTHOME_ENABLE_DB_INTEGRATION_TESTS)
+    add_test(NAME mysql_test COMMAND mysql_test)
+    add_test(NAME user_service_test COMMAND user_service_test)
+    add_test(NAME auth_handler_test COMMAND auth_handler_test)
+    add_test(NAME resource_handler_test COMMAND resource_handler_test)
+
+    #[[
+    四个测试按项目根目录解析 server/conf/server.conf；显式设置工作目录
+    可保证从 build 目录运行 ctest 时与手工从源码根目录运行结果一致。
+    ]]
+    get_filename_component(SMARTHOME_PROJECT_ROOT
+        "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+    set_tests_properties(
+        mysql_test
+        user_service_test
+        auth_handler_test
+        resource_handler_test
+        PROPERTIES
+            WORKING_DIRECTORY "${SMARTHOME_PROJECT_ROOT}"
+            LABELS "b;database;integration"
+    )
+endif()
