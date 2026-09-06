@@ -29,9 +29,6 @@
 #include <map>
 #include <vector>
 
-// 会话空闲超时（秒）：连接超过 N 秒没收到数据就回收
-static const int IDLE_TIMEOUT_SECONDS = 60;
-
 namespace smart_home {
 
     Reactor::Reactor(size_t thread_num, size_t capacity)
@@ -187,10 +184,13 @@ namespace smart_home {
     }
 
     void Reactor::checkIdleConnections(){
+        if(_idleTimeout <= 0){
+            return; // 永不回收空闲连接
+        }
         time_t now = time(nullptr);
         std::vector<int> idleFds;
         for(auto &kv : _conn){
-            if(now - kv.second->lastActive() >= IDLE_TIMEOUT_SECONDS){
+            if(now - kv.second->lastActive() >= _idleTimeout){
                 idleFds.push_back(kv.first);
             }
         }
@@ -214,6 +214,10 @@ namespace smart_home {
 
     void Reactor::setVideoPath(const std::string &path){
         _videoPath = path.empty() ? "./data/" : path;
+    }
+
+    void Reactor::setIdleTimeout(int seconds){
+        _idleTimeout = seconds;
     }
 
     // 未登录 / 会话失效时，按请求类型返回对应的 UNAUTHORIZED 响应。
