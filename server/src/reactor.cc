@@ -4,6 +4,8 @@
 #include "protocol/Protocol.h"
 #include "protocol/ErrorCode.h"
 #include "protocol/MessageType.h"
+#include "protocol/AuthProtocol.h"
+#include "session_policy.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
 #include "stream_session.h"
@@ -204,10 +206,28 @@ namespace smart_home {
         _resourceHandler = handler;
     }
 
+    void Reactor::setSessionTimeout(int seconds){
+        _sessionTimeout = seconds;
+    }
+
+    // 未登录 / 会话失效时，按请求类型返回对应的 UNAUTHORIZED 响应。
+    void Reactor::sendUnauthorized(std::shared_ptr<Connection> conn,
+                                   const TlvMessage &msg, MessageType requestType){
+        TlvMessage resp;
+        resp.version   = PROTOCOL_VERSION;
+        resp.requestId = msg.requestId;
+        resp.type      = responseTypeFor(requestType);
+        if (!buildUnauthorizedValue(requestType, resp.value)) {
+            return; // 非受保护请求，不在拦截范围
+        }
+        conn->sendData(TlvProtocol::encode(resp));
+    }
+
     void Reactor::handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg){
-        // 认证请求（注册/登录）：交给 B 的 AuthHandler（PBKDF2 校验 + token 会话）。
-        if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST ||
-            static_cast<MessageType>(msg.type) == MessageType::LOGIN_REQUEST) {
+        const MessageType type = static_cast<MessageType>(msg.type);
+
+        // 注册：无需登录即可访问。
+        if (type == MessageType::REGISTER_REQUEST) {
             if (_authHandler) {
                 TlvMessage resp = _authHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
@@ -215,9 +235,42 @@ namespace smart_home {
             return;
         }
 
-        // 资源请求（设备列表/录像查询）：交给 B 的 ResourceHandler（token 会话校验）。
-        if (static_cast<MessageType>(msg.type) == MessageType::DEVICE_LIST_REQUEST ||
-            static_cast<MessageType>(msg.type) == MessageType::RECORD_QUERY_REQUEST) {
+        // 登录：成功后把会话信息写入连接状态，作为后续请求的鉴权依据。
+        if (type == MessageType::LOGIN_REQUEST) {
+            if (_authHandler) {
+                TlvMessage resp = _authHandler->handle(msg);
+                uint64_t userId = 0;
+                std::string token;
+                ErrorCode code = ErrorCode::INTERNAL_ERROR;
+                if (AuthProtocol::decodeLoginResponse(resp.value, userId, token, code)
+                        && code == ErrorCode::SUCCESS) {
+                    conn->markLoggedIn(userId, token);
+                    LOG_INFO(("login success, fd=" + std::to_string(conn->fd())
+                              + " user=" + std::to_string(userId)).c_str());
+                }
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 需要登录的消息：设备列表 / 录像查询 / 推流 / 停流 —— 未登录拦截。
+        if (requiresAuth(type)) {
+            const time_t now = time(nullptr);
+            // 会话超时：登录态存在但已超过会话超时时间 → 强制登出。
+            if (conn->isAuthenticated() && conn->isSessionExpired(now, _sessionTimeout)) {
+                LOG_INFO(("session expired, logout fd=" + std::to_string(conn->fd())).c_str());
+                conn->markLoggedOut();
+            }
+            // 未登录拦截：连接未登录时拒绝所有需要登录的请求。
+            if (!conn->isAuthenticated()) {
+                sendUnauthorized(conn, msg, type);
+                return;
+            }
+        }
+
+        // 资源请求（设备列表/录像查询）：交给 B 的 ResourceHandler（内部再做 token 会话校验）。
+        if (type == MessageType::DEVICE_LIST_REQUEST ||
+            type == MessageType::RECORD_QUERY_REQUEST) {
             if (_resourceHandler) {
                 TlvMessage resp = _resourceHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
@@ -232,7 +285,7 @@ namespace smart_home {
 
         int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
 
-        switch (static_cast<MessageType>(msg.type)) {
+        switch (type) {
             case MessageType::STREAM_START_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
                 {

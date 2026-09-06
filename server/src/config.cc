@@ -94,6 +94,10 @@ namespace smart_home{
         return getString("log_file","./log/server.log");
     } 
 
+    int Config::sessionTimeout() const{
+        return getInt("session_timeout", 1800);
+    }
+
     //MySQL 配置
     std::string Config::mysqlHost() const{
         return getString("mysql_host", "127.0.0.1");

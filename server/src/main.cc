@@ -91,6 +91,7 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("task num    : " + std::to_string(cfg.taskNum())).c_str());
     LOG_INFO(("video path  : " + cfg.videoPath()).c_str());
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
+    LOG_INFO(("session t/o : " + std::to_string(cfg.sessionTimeout()) + "s").c_str());
 
     // 创建数据库连接 + 用户业务 + 认证处理器 
     smart_home::MySQLClient mysql;
@@ -108,6 +109,7 @@ int main(int argc, char *argv[]) {
     smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
     reactor.setAuthHandler(&authHandler);
     reactor.setResourceHandler(&resourceHandler);
+    reactor.setSessionTimeout(cfg.sessionTimeout());
     if (!reactor.init(cfg.ip(), cfg.port())) {
         LOG_ERROR("reactor init failed");
         Logger::destroy();
