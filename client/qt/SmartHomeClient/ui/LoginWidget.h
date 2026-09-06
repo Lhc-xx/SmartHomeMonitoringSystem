@@ -14,8 +14,8 @@ QT_END_NAMESPACE
 /*
  * LoginWidget 类职责：
  *
- * 提供用户名、密码、登录和注册控件，并将注册动作委托给 UserService。
- * 本类只处理界面输入与状态展示，不生成 TLV 数据，也不直接访问网络对象。
+ * 提供用户名、密码和登录控件，并把注册入口转交给独立的 RegisterDialog。
+ * 本类只处理登录表单和页面切换，不生成 TLV 数据，也不直接访问网络对象。
  */
 class LoginWidget : public QWidget
 {
@@ -27,15 +27,13 @@ public:
     ~LoginWidget();
 
 private slots:
-    /* 读取控件内容并调用 UserService，保持注册业务规则在服务层统一处理。 */
+    /* 打开独立注册对话框，保持登录和注册两套交互流程彼此隔离。 */
     void onRegisterClicked();
 
     /* 读取账号密码并提交登录请求；具体 TLV 和网络操作仍由 UserService 完成。 */
     void onLoginClicked();
 
     /* 根据认证服务结果更新界面状态。 */
-    void onRegisterSuccess();
-    void onRegisterFailed(const QString &reason);
     void onLoginSuccess(quint64 userId);
     void onLoginFailed(const QString &reason);
 

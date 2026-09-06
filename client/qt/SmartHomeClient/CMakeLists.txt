@@ -37,6 +37,9 @@ add_executable(SmartHomeClient
     ui/LoginWidget.cpp
     ui/LoginWidget.h
     ui/LoginWidget.ui
+    ui/RegisterDialog.cpp
+    ui/RegisterDialog.h
+    ui/RegisterDialog.ui
     ui/MonitoringDashboard.cpp
     ui/MonitoringDashboard.h
     video/VideoWidget.cpp
@@ -199,6 +202,9 @@ if(BUILD_TESTING)
         ui/LoginWidget.cpp
         ui/LoginWidget.h
         ui/LoginWidget.ui
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
         ui/MonitoringDashboard.cpp
         ui/MonitoringDashboard.h
         video/CameraConfig.cpp
@@ -217,4 +223,27 @@ if(BUILD_TESTING)
     target_link_libraries(MainWindowTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
     target_compile_features(MainWindowTest PRIVATE cxx_std_11)
     add_test(NAME MainWindowTest COMMAND MainWindowTest)
+
+    add_executable(RegisterDialogTest
+        tests/RegisterDialogTest.cpp
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
+        ui/LoginWidget.cpp
+        ui/LoginWidget.h
+        ui/LoginWidget.ui
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+    )
+    target_include_directories(RegisterDialogTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(RegisterDialogTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
+    target_compile_features(RegisterDialogTest PRIVATE cxx_std_11)
+    add_test(NAME RegisterDialogTest COMMAND RegisterDialogTest)
 endif()

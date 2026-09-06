@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QGroupBox>
+#include <QLabel>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QtTest>
@@ -17,6 +18,7 @@ class MonitoringDashboardTest : public QObject
 
 private slots:
     void createsFourChannelsAndDeviceTree();
+    void hidesRedundantHeaderBranding();
 };
 
 void MonitoringDashboardTest::createsFourChannelsAndDeviceTree()
@@ -34,6 +36,15 @@ void MonitoringDashboardTest::createsFourChannelsAndDeviceTree()
     for (QPushButton *button : ptzButtons) {
         QVERIFY(!button->isEnabled());
     }
+}
+
+void MonitoringDashboardTest::hidesRedundantHeaderBranding()
+{
+    MonitoringDashboard dashboard;
+
+    // 顶部导航只保留业务入口，避免重复显示登录页已经出现过的品牌文字。
+    QVERIFY(dashboard.findChild<QLabel *>(QStringLiteral("dashboardLogo")) == nullptr);
+    QVERIFY(dashboard.findChild<QLabel *>(QStringLiteral("dashboardTitle")) == nullptr);
 }
 
 QTEST_MAIN(MonitoringDashboardTest)

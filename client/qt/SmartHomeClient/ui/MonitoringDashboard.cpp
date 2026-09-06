@@ -6,8 +6,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QPushButton>
-#include <QSplitter>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -20,7 +20,8 @@ namespace {
 QPushButton *makeNavButton(const QString &text, QWidget *parent)
 {
     QPushButton *button = new QPushButton(text, parent);
-    button->setMinimumHeight(34);
+    button->setMinimumSize(92, 34);
+    button->setMaximumWidth(118);
     button->setCursor(Qt::PointingHandCursor);
     return button;
 }
@@ -56,23 +57,22 @@ void MonitoringDashboard::buildUi()
     setObjectName(QStringLiteral("monitoringDashboard"));
     setMinimumSize(1050, 650);
     setStyleSheet(QStringLiteral(R"(
-        QWidget#monitoringDashboard { background: #252b34; color: #e9edf2; font-family: "Segoe UI"; }
-        QFrame#dashboardHeader { background: #303641; border-bottom: 1px solid #454d5a; }
-        QLabel#dashboardLogo { color: #b7dc3a; font-size: 25px; font-weight: 800; }
-        QLabel#dashboardTitle { color: #f5f7fa; font-size: 20px; font-weight: 700; }
-        QLabel#dashboardSubtitle { color: #aeb8c4; font-size: 11px; }
-        QPushButton { background: #3b4450; border: 1px solid #505a68; border-radius: 5px; color: #e9edf2; padding: 6px 13px; }
+        QWidget#monitoringDashboard { background: #202832; color: #e9edf2; font-family: "Segoe UI"; }
+        QFrame#dashboardHeader { background: #2b3440; border-bottom: 1px solid #465261; }
+        QPushButton { background: #374352; border: 1px solid #536174; border-radius: 5px; color: #e9edf2; padding: 6px 12px; font-size: 13px; }
         QPushButton:hover { background: #465363; }
-        QPushButton:pressed { background: #1e8fba; }
-        QPushButton:disabled { background: #303640; color: #68717e; border-color: #3b424d; }
-        QPushButton#activeNavButton { background: #3b91bd; border-color: #5eb4dc; }
-        QListWidget, QTreeWidget { background: #303640; border: 1px solid #444d5a; border-radius: 4px; color: #e1e6ec; }
-        QListWidget::item, QTreeWidget::item { padding: 5px; }
+        QPushButton:pressed { background: #237da7; }
+        QPushButton:disabled { background: #303944; color: #68717e; border-color: #3b4653; }
+        QPushButton#activeNavButton { background: #3b91bd; border-color: #6ec2e8; }
+        QListWidget, QTreeWidget { background: #2d3642; border: 1px solid #465261; border-radius: 5px; color: #e1e6ec; }
+        QListWidget::item, QTreeWidget::item { padding: 3px 6px; }
+        QListWidget::item:hover, QTreeWidget::item:hover { background: #394758; }
         QListWidget::item:selected, QTreeWidget::item:selected { background: #3b91bd; color: white; }
-        QGroupBox { border: 1px solid #444d5a; border-radius: 5px; margin-top: 12px; padding-top: 10px; color: #e1e6ec; font-weight: 600; }
+        QGroupBox { border: 1px solid #465261; border-radius: 6px; margin-top: 10px; padding-top: 8px; color: #e1e6ec; font-weight: 600; }
         QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-        QLabel#panelCaption { color: #aeb8c4; font-size: 12px; }
-        QLabel#dashboardStatus { background: #303640; border-top: 1px solid #454d5a; color: #aeb8c4; padding: 7px 10px; }
+        QLabel#panelCaption { color: #aeb8c4; font-size: 11px; }
+        QLabel#ptzHintLabel { color: #9da9b7; font-size: 11px; }
+        QLabel#dashboardStatus { background: #2b3440; border-top: 1px solid #465261; color: #aeb8c4; padding: 5px 10px; min-height: 20px; }
     )"));
 
     QVBoxLayout *root = new QVBoxLayout(this);
@@ -81,16 +81,13 @@ void MonitoringDashboard::buildUi()
 
     QFrame *header = new QFrame(this);
     header->setObjectName(QStringLiteral("dashboardHeader"));
+    header->setFixedHeight(56);
     QHBoxLayout *headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(20, 10, 20, 10);
-    QLabel *logo = new QLabel(QStringLiteral("SM"), header);
-    logo->setObjectName(QStringLiteral("dashboardLogo"));
-    QLabel *titleBlock = new QLabel(QStringLiteral("SMART HOME\nMONITORING SYSTEM"), header);
-    titleBlock->setObjectName(QStringLiteral("dashboardTitle"));
-    titleBlock->setToolTip(QStringLiteral("智能家居视频监控平台"));
-    headerLayout->addWidget(logo);
-    headerLayout->addSpacing(12);
-    headerLayout->addWidget(titleBlock);
+    headerLayout->setContentsMargins(12, 8, 12, 8);
+    headerLayout->setSpacing(8);
+
+    /* 顶部只保留当前页面的业务导航，不再重复显示登录页中的品牌标题，
+       这样可以把有限的窗口高度留给实时预览和设备操作区域。 */
     headerLayout->addStretch();
     QPushButton *previewButton = makeNavButton(QStringLiteral("实时预览"), header);
     previewButton->setObjectName(QStringLiteral("activeNavButton"));
@@ -102,18 +99,26 @@ void MonitoringDashboard::buildUi()
     root->addWidget(header);
 
     QHBoxLayout *content = new QHBoxLayout;
-    content->setContentsMargins(8, 8, 8, 4);
-    content->setSpacing(8);
+    content->setContentsMargins(10, 8, 10, 6);
+    content->setSpacing(10);
 
-    QGroupBox *events = new QGroupBox(QStringLiteral("窗口信息"), this);
+    QGroupBox *events = new QGroupBox(QStringLiteral("状态信息"), this);
     events->setObjectName(QStringLiteral("eventPanel"));
-    events->setMinimumWidth(205);
+    events->setMinimumWidth(190);
+    events->setMaximumWidth(230);
     QVBoxLayout *eventLayout = new QVBoxLayout(events);
-    QLabel *eventCaption = new QLabel(QStringLiteral("客户端实时状态"), events);
+    eventLayout->setContentsMargins(8, 8, 8, 8);
+    eventLayout->setSpacing(5);
+    QLabel *eventCaption = new QLabel(QStringLiteral("最近事件"), events);
     eventCaption->setObjectName(QStringLiteral("panelCaption"));
     m_eventList = new QListWidget(events);
     m_eventList->setObjectName(QStringLiteral("eventList"));
     m_eventList->setSelectionMode(QAbstractItemView::NoSelection);
+    m_eventList->setUniformItemSizes(true);
+    m_eventList->setWordWrap(false);
+    m_eventList->setSpacing(1);
+    m_eventList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_eventList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     eventLayout->addWidget(eventCaption);
     eventLayout->addWidget(m_eventList, 1);
     content->addWidget(events);
@@ -122,7 +127,7 @@ void MonitoringDashboard::buildUi()
     videoArea->setObjectName(QStringLiteral("videoArea"));
     QGridLayout *videoGrid = new QGridLayout(videoArea);
     videoGrid->setContentsMargins(0, 0, 0, 0);
-    videoGrid->setSpacing(6);
+    videoGrid->setSpacing(8);
     const QStringList slotNames = QStringList()
         << QStringLiteral("通道 01 · 枪机")
         << QStringLiteral("通道 02 · 球机")
@@ -138,6 +143,7 @@ void MonitoringDashboard::buildUi()
         m_videoWidgets.append(video);
         videoGrid->addWidget(video, index / 2, index % 2);
     }
+    videoArea->setMinimumWidth(560);
     videoGrid->setRowStretch(0, 1);
     videoGrid->setRowStretch(1, 1);
     videoGrid->setColumnStretch(0, 1);
@@ -145,12 +151,14 @@ void MonitoringDashboard::buildUi()
     content->addWidget(videoArea, 1);
 
     QWidget *rightPanel = new QWidget(this);
-    rightPanel->setMinimumWidth(270);
+    rightPanel->setMinimumWidth(248);
+    rightPanel->setMaximumWidth(300);
     QVBoxLayout *rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(6);
+    rightLayout->setSpacing(8);
     QGroupBox *devicePanel = new QGroupBox(QStringLiteral("设备列表"), rightPanel);
     devicePanel->setObjectName(QStringLiteral("devicePanel"));
+    devicePanel->setMinimumHeight(280);
     QVBoxLayout *deviceLayout = new QVBoxLayout(devicePanel);
     m_deviceTree = new QTreeWidget(devicePanel);
     m_deviceTree->setObjectName(QStringLiteral("monitorDeviceTree"));
@@ -164,12 +172,14 @@ void MonitoringDashboard::buildUi()
 
     m_ptzPanel = new QGroupBox(QStringLiteral("云台控制 · 球机"), rightPanel);
     m_ptzPanel->setObjectName(QStringLiteral("ptzPanel"));
-    rightLayout->addWidget(m_ptzPanel);
+    m_ptzPanel->setMinimumHeight(200);
+    m_ptzPanel->setMaximumHeight(230);
+    rightLayout->addWidget(m_ptzPanel, 0);
     buildPtzControls();
     content->addWidget(rightPanel);
     root->addLayout(content, 1);
 
-    m_statusLabel = new QLabel(QStringLiteral("登录成功，等待本地摄像头配置"), this);
+    m_statusLabel = new QLabel(QStringLiteral("就绪 · 登录成功，等待摄像头配置"), this);
     m_statusLabel->setObjectName(QStringLiteral("dashboardStatus"));
     root->addWidget(m_statusLabel);
 
@@ -193,8 +203,8 @@ void MonitoringDashboard::buildUi()
 void MonitoringDashboard::buildPtzControls()
 {
     QGridLayout *layout = new QGridLayout(m_ptzPanel);
-    layout->setContentsMargins(12, 18, 12, 12);
-    layout->setSpacing(5);
+    layout->setContentsMargins(10, 18, 10, 10);
+    layout->setSpacing(4);
 
     const QList<PtzClient::Direction> directions = QList<PtzClient::Direction>()
         << PtzClient::Direction::UpLeft << PtzClient::Direction::Up << PtzClient::Direction::UpRight
@@ -211,7 +221,7 @@ void MonitoringDashboard::buildPtzControls()
     for (int index = 0; index < directions.size(); ++index) {
         QPushButton *button = new QPushButton(labels.at(index), m_ptzPanel);
         button->setObjectName(QStringLiteral("ptzDirectionButton%1").arg(index));
-        button->setMinimumSize(42, 34);
+        button->setMinimumSize(38, 30);
         button->setProperty("ptzDirection", static_cast<int>(directions.at(index)));
         button->installEventFilter(this);
         m_ptzButtons.append(button);
@@ -220,7 +230,7 @@ void MonitoringDashboard::buildPtzControls()
 
     QPushButton *stopButton = new QPushButton(QStringLiteral("■"), m_ptzPanel);
     stopButton->setObjectName(QStringLiteral("ptzStopButton"));
-    stopButton->setMinimumSize(42, 34);
+    stopButton->setMinimumSize(38, 30);
     connect(stopButton, &QPushButton::clicked, m_ptzClient, &PtzClient::stopMove);
     m_auxPtzButtons.append(stopButton);
     layout->addWidget(stopButton, 1, 1);
@@ -367,15 +377,27 @@ void MonitoringDashboard::handlePtzError(const QString &reason)
 
 void MonitoringDashboard::appendEvent(const QString &message)
 {
-    if (m_eventList == nullptr || message.trimmed().isEmpty()) {
+    const QString normalized = message.simplified();
+    if (m_eventList == nullptr || normalized.isEmpty()) {
         return;
     }
-    m_eventList->addItem(message);
-    while (m_eventList->count() > 100) {
+
+    /* RTSP 重连或播放器错误可能在短时间内连续上报同一文本。
+       只合并相邻重复项，既保留事件顺序，又避免左侧面板被刷屏。 */
+    if (m_eventList->count() > 0
+        && m_eventList->item(m_eventList->count() - 1)->text() == normalized) {
+        QListWidgetItem *lastItem = m_eventList->item(m_eventList->count() - 1);
+        lastItem->setData(Qt::UserRole, lastItem->data(Qt::UserRole).toInt() + 1);
+        return;
+    }
+
+    QListWidgetItem *item = new QListWidgetItem(normalized, m_eventList);
+    item->setData(Qt::UserRole, 1);
+    while (m_eventList->count() > 24) {
         delete m_eventList->takeItem(0);
     }
     m_eventList->scrollToBottom();
-    emit eventLogged(message);
+    emit eventLogged(normalized);
 }
 
 void MonitoringDashboard::applySelectedCamera(QTreeWidgetItem *item)
