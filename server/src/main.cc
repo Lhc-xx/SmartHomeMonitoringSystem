@@ -15,6 +15,7 @@
 
 #include <iostream>     // std::cerr：标准错误输出
 #include <string>       // std::string、std::to_string（int 转字符串）
+#include <csignal>   // std::signal：注册退出信号，触发优雅关闭
 
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
@@ -35,6 +36,21 @@ static void ensureLogDir(const std::string &log_file) {
     // mkdir(路径, 权限)：0755 = 所有者可读写执行，其他人可读可执行
     // 目录已存在时 mkdir 会失败（errno == EEXIST），这里直接忽略即可
     mkdir(dir.c_str(), 0755);
+}
+
+// 全局反应器指针：信号处理器通过它触发优雅关闭。
+// 信号处理器是 C 风格函数，无法直接访问 main() 里的栈上对象，
+// 因此用全局指针桥接；只在信号注册后、run() 返回前被使用。
+static smart_home::Reactor* g_reactor = nullptr;
+
+// 退出信号处理器：收到 SIGINT(Ctrl+C) / SIGTERM 后请求事件循环退出。
+// 这里只调用 stop()（内部仅把一个原子标志置 false），避免在信号
+// 处理函数中调用日志等非异步信号安全的操作。
+static void handleShutdownSignal(int sig) {
+    (void)sig;  // 信号值仅用于区分来源，这里统一按“退出”处理
+    if (g_reactor != nullptr) {
+        g_reactor->stop();
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -95,10 +111,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     LOG_INFO(("reactor listening on " + cfg.ip() + ":" + std::to_string(cfg.port())).c_str());
-    reactor.run();   // 阻塞在事件循环，Ctrl+C 退出
+    // 注册退出信号：Ctrl+C(SIGINT) 或 kill(SIGTERM) 都会触发优雅关闭。
+    g_reactor = &reactor;
+    std::signal(SIGINT,  handleShutdownSignal);
+    std::signal(SIGTERM, handleShutdownSignal);
+
+    reactor.run();   // 阻塞在事件循环，收到退出信号后返回
+    g_reactor = nullptr;
 
     // ---- 第 6 步：优雅退出 ----
-    // 真实服务器会在这里等待退出信号；现在直接走清理流程
+    // 收到退出信号后 run() 返回，这里走清理流程
     LOG_INFO("server exit");
     Logger::destroy();  // 释放日志单例，刷新并关闭日志文件
     return 0;

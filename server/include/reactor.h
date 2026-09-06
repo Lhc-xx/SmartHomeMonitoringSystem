@@ -7,6 +7,7 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <atomic>
 #include <mutex>
 
 namespace smart_home {
@@ -32,7 +33,7 @@ namespace smart_home {
     private:
         int _epFd; // epoll 实例fd
         int _listenFd; // 监听的fd
-        bool _runFlag; // 运行标志
+        std::atomic<bool> _runFlag; // 运行标志
         std::map<int, std::shared_ptr<Connection>> _conn; // 连接对象
         ThreadPool _pool; // 线程池, 分发任务
    }; 

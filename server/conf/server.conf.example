@@ -1,0 +1,44 @@
+# ============================================================================
+# SmartHome Server 配置模板（脱敏示例，角色 A 负责）
+#
+# 使用方法：复制为 server.conf 后按需修改：
+#   cp server/conf/server.conf.example server/conf/server.conf
+#
+# 约定：从项目根目录启动服务器时，默认读取 server/conf/server.conf。
+# 真实密码、token、摄像头账号/密钥只写在本地 server.conf，禁止提交到仓库。
+# ============================================================================
+
+# 监听地址（0.0.0.0 表示所有网卡）
+ip 127.0.0.1
+
+# 监听端口
+port 7777
+
+# 线程池线程数
+thread_num 4
+
+# 任务队列容量
+task_num 10000
+
+# 录像文件保存目录（相对项目根目录）
+video_path ./data/
+
+# 日志文件路径（相对项目根目录）
+log_file ./log/server.log
+
+# ------------------------- MySQL 数据库配置 -------------------------
+
+# MySQL 服务器地址
+mysql_host 127.0.0.1
+
+# MySQL 端口
+mysql_port 3306
+
+# MySQL 用户名（按本地环境填写）
+mysql_user smarthome
+
+# MySQL 密码（脱敏，禁止提交真实密码）
+mysql_password change_me
+
+# 数据库名
+mysql_database smarthome
