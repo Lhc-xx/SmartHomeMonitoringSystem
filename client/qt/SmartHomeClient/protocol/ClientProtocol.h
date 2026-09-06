@@ -19,7 +19,11 @@ public:
         RegisterRequest = 0x1001, RegisterResponseType = 0x1002,
         LoginRequest = 0x1101, LoginResponseType = 0x1102,
         DeviceListRequest = 0x1201, DeviceListResponseType = 0x1202,
-        RecordQueryRequest = 0x1301, RecordQueryResponseType = 0x1302
+        RecordQueryRequest = 0x1301, RecordQueryResponseType = 0x1302,
+        StreamStartRequest = 0x1401, StreamStartResponseType = 0x1402,
+        StreamStopRequest = 0x1501, StreamStopResponseType = 0x1502,
+        RecordStartRequest = 0x1601, RecordStartResponseType = 0x1602,
+        RecordStopRequest = 0x1701, RecordStopResponseType = 0x1702
     };
 
     /* 通用拆包状态：Incomplete 保留半包，Invalid 会安全清空无法恢复的缓冲。 */
@@ -43,6 +47,9 @@ public:
     struct DeviceListResponse { quint32 requestId; ErrorCode errorCode; QList<DeviceInfo> devices; };
     struct RecordQueryResponse { quint32 requestId; ErrorCode errorCode; QList<RecordInfo> records; };
 
+    /* 流媒体与录像控制的响应只携带 errorCode，四类复用同一结构。 */
+    struct ControlResponse { quint32 requestId; ErrorCode errorCode; };
+
     /* 注册和登录请求的 value 均为 username/password 两个 uint16 length-string。 */
     static QByteArray encodeRegisterRequest(const QString &username, const QString &password,
                                             quint32 requestId = 0);
@@ -56,6 +63,12 @@ public:
                                                quint64 deviceId, const QString &startTime,
                                                const QString &endTime, quint32 requestId);
 
+    /* 流媒体控制：推流/停流请求无业务字段，录像开始携带 deviceId。 */
+    static QByteArray encodeStreamStartRequest(quint32 requestId = 0);
+    static QByteArray encodeStreamStopRequest(quint32 requestId = 0);
+    static QByteArray encodeRecordStartRequest(quint64 deviceId, quint32 requestId = 0);
+    static QByteArray encodeRecordStopRequest(quint32 requestId = 0);
+
     /* 从 TCP 缓冲取得一条完整 TLV；恶意超长 length 会安全失败而不会越界读取。 */
     static PacketState tryTakePacket(QByteArray &receiveBuffer, Packet &packet,
                                      ErrorCode &errorCode);
@@ -65,6 +78,10 @@ public:
     static bool decodeLoginResponse(const QByteArray &packet, LoginResponse &response);
     static bool decodeDeviceListResponse(const QByteArray &packet, DeviceListResponse &response);
     static bool decodeRecordQueryResponse(const QByteArray &packet, RecordQueryResponse &response);
+    static bool decodeStreamStartResponse(const QByteArray &packet, ControlResponse &response);
+    static bool decodeStreamStopResponse(const QByteArray &packet, ControlResponse &response);
+    static bool decodeRecordStartResponse(const QByteArray &packet, ControlResponse &response);
+    static bool decodeRecordStopResponse(const QByteArray &packet, ControlResponse &response);
 
 private:
     /* 在写入长度前统一校验 UTF-8/token 是否可由 uint16 表示。 */
