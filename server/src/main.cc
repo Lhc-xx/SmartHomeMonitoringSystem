@@ -20,6 +20,7 @@
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
 #include "reactor.h"    // 网络模块
+#include "recorder.h"   // ensureDirectoryExists（录像目录检查）
 #include "MySQLClient.h"
 #include "UserService.h"
 #include "AuthHandler.h"
@@ -93,6 +94,11 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
     LOG_INFO(("session t/o : " + std::to_string(cfg.sessionTimeout()) + "s").c_str());
 
+    // ---- 第 4.5 步：确保录像目录存在（目录检查）----
+    if (!smart_home::ensureDirectoryExists(cfg.videoPath())) {
+        LOG_WARN(("cannot create video dir: " + cfg.videoPath()).c_str());
+    }
+
     // 创建数据库连接 + 用户业务 + 认证处理器 
     smart_home::MySQLClient mysql;
     if(!mysql.connect(cfg.mysqlHost(), cfg.mysqlUser(), cfg.mysqlPassword(),
@@ -110,6 +116,7 @@ int main(int argc, char *argv[]) {
     reactor.setAuthHandler(&authHandler);
     reactor.setResourceHandler(&resourceHandler);
     reactor.setSessionTimeout(cfg.sessionTimeout());
+    reactor.setVideoPath(cfg.videoPath());
     if (!reactor.init(cfg.ip(), cfg.port())) {
         LOG_ERROR("reactor init failed");
         Logger::destroy();

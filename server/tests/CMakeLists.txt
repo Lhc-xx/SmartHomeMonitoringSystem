@@ -69,3 +69,11 @@ target_link_libraries(session_policy_test PRIVATE smart_home_common pthread)
 target_compile_features(session_policy_test PRIVATE cxx_std_11)
 target_include_directories(session_policy_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME session_policy_test COMMAND session_policy_test)
+
+#[[录像文件写入器 + 目录检查（角色 A）：不依赖 MySQL / log4cpp / epoll，自动加入 CTest。]]
+add_executable(recorder_test
+    recorder_test.cc ../src/recorder.cc)
+target_link_libraries(recorder_test PRIVATE pthread)
+target_compile_features(recorder_test PRIVATE cxx_std_11)
+target_include_directories(recorder_test PRIVATE ${SERVER_INCLUDE_DIR})
+add_test(NAME recorder_test COMMAND recorder_test)

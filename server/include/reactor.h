@@ -25,6 +25,7 @@ namespace smart_home {
         void setAuthHandler(AuthHandler* handler);
         void setResourceHandler(ResourceHandler* handler);
         void setSessionTimeout(int seconds); // 登录会话超时（秒），<=0 永不超时
+        void setVideoPath(const std::string &path); // 录像文件保存目录
 
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
@@ -39,6 +40,7 @@ namespace smart_home {
 
     private:
         int _sessionTimeout = 1800; // 登录会话超时（秒）
+        std::string _videoPath = "./data/"; // 录像文件保存目录
         int _epFd; // epoll 实例fd
         int _listenFd; // 监听的fd
         std::atomic<bool> _runFlag; // 运行标志

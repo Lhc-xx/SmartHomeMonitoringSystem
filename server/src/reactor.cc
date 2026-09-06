@@ -12,7 +12,9 @@
 #include "media/mock_media_source.h"
 
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/types.h>
@@ -210,6 +212,10 @@ namespace smart_home {
         _sessionTimeout = seconds;
     }
 
+    void Reactor::setVideoPath(const std::string &path){
+        _videoPath = path.empty() ? "./data/" : path;
+    }
+
     // 未登录 / 会话失效时，按请求类型返回对应的 UNAUTHORIZED 响应。
     void Reactor::sendUnauthorized(std::shared_ptr<Connection> conn,
                                    const TlvMessage &msg, MessageType requestType){
@@ -307,6 +313,66 @@ namespace smart_home {
                     if (it != _streams.end()) {
                         it->second->stop();
                         _streams.erase(it);
+                    }
+                }
+                break;
+
+            case MessageType::RECORD_START_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::RECORD_START_RESPONSE);
+                {
+                    // 解析 deviceId（8 字节大端 uint64），用于生成录像文件名
+                    uint64_t deviceId = 0;
+                    if (msg.value.size() >= 8) {
+                        for (size_t i = 0; i < 8; ++i) {
+                            deviceId = (deviceId << 8) | msg.value[i];
+                        }
+                    }
+                    std::shared_ptr<StreamSession> session;
+                    {
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        auto it = _streams.find(conn->fd());
+                        if (it != _streams.end()) {
+                            session = it->second;
+                        }
+                    }
+                    if (!session) {
+                        errCode = static_cast<int32_t>(ErrorCode::STREAM_NOT_FOUND);
+                    } else if (session->isRecording()) {
+                        errCode = static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED);
+                    } else {
+                        std::string filePath = _videoPath + "/" + std::to_string(deviceId)
+                                             + "_" + std::to_string(time(nullptr)) + ".rec";
+                        if (!session->startRecord(filePath)) {
+                            errCode = static_cast<int32_t>(ErrorCode::RECORD_OPEN_FAILED);
+                        } else {
+                            LOG_INFO(("record start, fd=" + std::to_string(conn->fd())
+                                      + " file=" + filePath).c_str());
+                        }
+                    }
+                }
+                break;
+
+            case MessageType::RECORD_STOP_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
+                {
+                    std::shared_ptr<StreamSession> session;
+                    {
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        auto it = _streams.find(conn->fd());
+                        if (it != _streams.end()) {
+                            session = it->second;
+                        }
+                    }
+                    if (!session) {
+                        errCode = static_cast<int32_t>(ErrorCode::STREAM_NOT_FOUND);
+                    } else {
+                        std::size_t bytesWritten = 0;
+                        if (!session->stopRecord(bytesWritten)) {
+                            errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
+                        } else {
+                            LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
+                                      + " bytes=" + std::to_string(bytesWritten)).c_str());
+                        }
                     }
                 }
                 break;
