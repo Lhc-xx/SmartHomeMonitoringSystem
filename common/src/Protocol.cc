@@ -50,7 +50,7 @@ bool readUint32BE(const std::vector<uint8_t> &buffer, std::size_t &position,
   return true;
 }
 
-/* 外层 type 只能是 MessageType 中定义的八个业务消息，不能接受任意整数。 */
+/* 外层 type 只能是 MessageType 中定义的消息类型，不能接受任意整数。 */
 bool isKnownMessageType(uint16_t type) {
   switch (static_cast<MessageType>(type)) {
     case MessageType::REGISTER_REQUEST:
@@ -61,6 +61,10 @@ bool isKnownMessageType(uint16_t type) {
     case MessageType::DEVICE_LIST_RESPONSE:
     case MessageType::RECORD_QUERY_REQUEST:
     case MessageType::RECORD_QUERY_RESPONSE:
+    case MessageType::STREAM_START_REQUEST:
+    case MessageType::STREAM_START_RESPONSE:
+    case MessageType::STREAM_STOP_REQUEST:
+    case MessageType::STREAM_STOP_RESPONSE:
       return true;
   }
   return false;
