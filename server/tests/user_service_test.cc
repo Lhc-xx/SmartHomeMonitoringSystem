@@ -44,6 +44,16 @@ int main() {
     cleanupUser(mysql, username);
     smart_home::UserService service(mysql);
 
+    /* 空字段和超长用户名必须在密码派生及 SQL 执行前被拒绝。 */
+    const std::string overlongUsername(65U, 'u');
+    if (service.registerUser(std::string(), password) != ErrorCode::INVALID_PARAMETER ||
+        service.registerUser(overlongUsername, password) != ErrorCode::INVALID_PARAMETER ||
+        service.loginUser(username, std::string()).code != ErrorCode::INVALID_PARAMETER) {
+        std::cerr << "[FAIL] invalid authentication parameter" << std::endl;
+        cleanupUser(mysql, username);
+        return 1;
+    }
+
     if (service.registerUser(username, password) != ErrorCode::SUCCESS ||
         service.registerUser(username, password) != ErrorCode::USER_ALREADY_EXISTS) {
         std::cerr << "[FAIL] register or duplicate registration" << std::endl;
