@@ -52,8 +52,27 @@ public:
     unsigned int lastErrno() const;
 
 private:
+    /*
+     * 以下辅助函数均要求调用方已经持有 _mutex。
+     * 将重连集中在一个入口，避免 query/execute 各自实现时出现行为不一致。
+     */
+    bool reconnectLocked();
+    bool startTransactionLocked();
+    bool isConnectionError(unsigned int errorCode) const;
+    void setErrorLocked(const std::string &message, unsigned int errorCode);
+
     MYSQL *_conn;
     bool _connected;
+    bool _reconnectEnabled;
+    bool _inTransaction;
+
+    /* 保存连接参数只用于进程内自动重连，密码不会写入日志或仓库。 */
+    std::string _host;
+    std::string _user;
+    std::string _password;
+    std::string _database;
+    unsigned int _port;
+
     std::string _lastError;
     unsigned int _lastErrno;
     mutable std::mutex _mutex;
