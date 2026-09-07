@@ -306,6 +306,8 @@ if(BUILD_TESTING)
         video/VideoWidget.h
         video/ServerStreamPlayer.cpp
         video/ServerStreamPlayer.h
+        video/FilePlaybackPlayer.cpp
+        video/FilePlaybackPlayer.h
         ../src/mock_decoder.cc
         ../../../common/src/media_packet.cc
         ../../../common/src/media_reassembler.cc
@@ -335,6 +337,7 @@ if(BUILD_TESTING)
         protocol/ClientProtocol.h
         service/UserService.cpp
         service/UserService.h
+        ../../../common/src/media_packet.cc
     )
     target_include_directories(RegisterDialogTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
