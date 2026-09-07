@@ -1,0 +1,6 @@
+# frps（云端服务器 119.29.153.97）配置
+# 用法：./frps -c frps.toml
+bindPort = 7000
+
+# 鉴权：本地 frpc 必须带同样 token，避免被陌生人挂隧道
+auth.token = "change-this-secret-token"

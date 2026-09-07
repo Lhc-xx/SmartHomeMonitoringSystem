@@ -1,0 +1,21 @@
+# SmartHomeClient 摄像头配置（枪机 + 球机真实地址）
+
+[gun]
+name=枪机
+type=gun
+rtspUrl=rtsp://admin:admin@192.168.2.100/live/chn=0
+webUrl=http://192.168.2.100
+user=admin
+password=admin
+enabled=true
+ffmpegPath=
+
+[dome]
+name=球机
+type=dome
+rtspUrl=rtsp://admin:admin@192.168.2.160/live/chn=0
+webUrl=http://192.168.2.160
+user=admin
+password=admin
+enabled=true
+ffmpegPath=

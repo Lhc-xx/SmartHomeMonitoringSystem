@@ -1,0 +1,39 @@
+# frpc（本地与摄像头同网段的机器）配置模板
+# 用法：./frpc -c frpc.toml
+# 把 localIP 换成摄像头实际私网地址后保存为 frpc.toml。
+
+serverAddr = "119.29.153.97"
+serverPort = 7000
+auth.token = "change-this-secret-token"
+
+# 枪机 RTSP
+[[proxies]]
+name = "gun_rtsp"
+type = "tcp"
+localIP = "192.168.2.100"
+localPort = 554
+remotePort = 8554
+
+# 球机 RTSP
+[[proxies]]
+name = "dome_rtsp"
+type = "tcp"
+localIP = "192.168.2.160"
+localPort = 554
+remotePort = 8555
+
+# 枪机网页（云台/回放接口）
+[[proxies]]
+name = "gun_http"
+type = "tcp"
+localIP = "192.168.2.100"
+localPort = 80
+remotePort = 8080
+
+# 球机网页（云台接口）
+[[proxies]]
+name = "dome_http"
+type = "tcp"
+localIP = "192.168.2.160"
+localPort = 80
+remotePort = 8081
