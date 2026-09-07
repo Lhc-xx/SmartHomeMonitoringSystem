@@ -10,6 +10,9 @@
 #include "ResourceHandler.h"
 #include "media/stream_session.h"
 #include "media/mock_media_source.h"
+#ifdef SMARTHOME_WITH_FFMPEG
+#include "media/ffmpeg_media_source.h"
+#endif
 
 #include <cerrno>
 #include <cstddef>
@@ -30,6 +33,36 @@
 #include <vector>
 
 namespace smart_home {
+
+namespace {
+
+// STREAM_START 请求体：uint16(大端) 长度 + UTF-8 字节的 stream URL。
+// 长度字段不足 / 数据不完整 / 长度为 0 时返回空串（表示使用默认 Mock 源）。
+std::string parseStreamUrl(const std::vector<uint8_t> &value) {
+    if (value.size() < 2) {
+        return std::string();
+    }
+    const uint16_t len = static_cast<uint16_t>((value[0] << 8) | value[1]);
+    if (value.size() < static_cast<size_t>(2) + len) {
+        return std::string();
+    }
+    return std::string(reinterpret_cast<const char *>(value.data() + 2), len);
+}
+
+// 根据 stream URL 选择媒体源：空串或 "mock://" 前缀用 Mock，其余交给 FFmpeg。
+// 未编译 FFmpeg 时始终回退 Mock，保证服务器在无 FFmpeg 环境下仍可构建、可演示。
+std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
+#ifdef SMARTHOME_WITH_FFMPEG
+    if (!url.empty() && url.compare(0, 7, "mock://") != 0) {
+        return std::unique_ptr<media::MediaSource>(new media::FFmpegMediaSource());
+    }
+#else
+    (void)url;
+#endif
+    return std::unique_ptr<media::MediaSource>(new media::MockMediaSource());
+}
+
+}  // namespace
 
     Reactor::Reactor(size_t thread_num, size_t capacity)
     : _epFd(-1)
@@ -288,7 +321,7 @@ namespace smart_home {
             return;
         }
 
-        // 流媒体请求：当前使用 mock 媒体源，后续替换为 C 的 FFmpeg 拉流源。
+        // 流媒体/录像控制请求：按 stream URL 选择 Mock 或 FFmpeg 源（见 makeMediaSource）。
         TlvMessage resp;
         resp.version   = PROTOCOL_VERSION;
         resp.requestId = msg.requestId;
@@ -299,13 +332,22 @@ namespace smart_home {
             case MessageType::STREAM_START_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
                 {
-                    // 创建假媒体源 + 流会话，启动并保存
-                    std::unique_ptr<media::MockMediaSource> source(new media::MockMediaSource());
+                    // 按请求携带的 stream URL 选择源：空 / mock:// → Mock；否则 FFmpeg。
+                    const std::string url = parseStreamUrl(msg.value);
+                    std::unique_ptr<media::MediaSource> source = makeMediaSource(url);
                     auto session = std::make_shared<media::StreamSession>(std::move(source));
                     session->setSink([conn](const std::vector<uint8_t> &bytes) { conn->sendData(bytes); });
-                    session->start("mock://test");
-                    std::lock_guard<std::mutex> guard(_streamsMutex);
-                    _streams[conn->fd()] = session;
+                    const std::string openUrl = url.empty() ? "mock://test" : url;
+                    if (!session->start(openUrl)) {
+                        errCode = static_cast<int32_t>(ErrorCode::STREAM_OPEN_FAILED);
+                        LOG_WARN(("stream open failed, fd=" + std::to_string(conn->fd())
+                                  + " url=" + openUrl).c_str());
+                    } else {
+                        LOG_INFO(("stream start, fd=" + std::to_string(conn->fd())
+                                  + " url=" + openUrl).c_str());
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        _streams[conn->fd()] = session;
+                    }
                 }
                 break;
 

@@ -34,6 +34,19 @@ static std::vector<uint8_t> makeU64BE(uint64_t v) {
     return out;
 }
 
+// 构造 length-string：uint16 大端长度 + UTF-8 字节（STREAM_START 的 streamUrl 字段）。
+static std::vector<uint8_t> makeLengthString(const std::string &s) {
+    std::vector<uint8_t> out;
+    if (s.size() > 65535) {
+        return out;  // 超长按空串处理
+    }
+    const uint16_t len = static_cast<uint16_t>(s.size());
+    out.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>(len & 0xFF));
+    out.insert(out.end(), s.begin(), s.end());
+    return out;
+}
+
 // 发送一个 TLV 请求。
 static void sendRequest(int fd, uint16_t type, const std::vector<uint8_t>& value,
                         uint32_t requestId) {
@@ -127,6 +140,16 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "connect to " << cfg.server_ip << ":" << cfg.server_port << std::endl;
 
+    // 0.5 确定推流地址：命令行第二参数优先，其次配置 stream_url，为空用 Mock 源。
+    std::string stream_url;
+    if (argc > 2) {
+        stream_url = argv[2];
+    } else {
+        stream_url = cfg.stream_url;
+    }
+    std::cout << "stream url: " << (stream_url.empty() ? std::string("(mock)") : stream_url)
+              << std::endl;
+
     // 1.socket + 2.connect（断线重连）
     int sockfd;
     struct sockaddr_in addr{};
@@ -159,9 +182,9 @@ int main(int argc, char *argv[]) {
     int totalFrames = 0;
     uint32_t reqId = 1;
 
-    // ---- 1) 推流 ----
+    // ---- 1) 推流（携带 stream URL；空串 = Mock 源）----
     sendRequest(sockfd, static_cast<uint16_t>(MessageType::STREAM_START_REQUEST),
-                std::vector<uint8_t>(), reqId++);
+                makeLengthString(stream_url), reqId++);
     if (waitForResponse(sockfd, buf,
                         static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE),
                         totalFrames)) {
