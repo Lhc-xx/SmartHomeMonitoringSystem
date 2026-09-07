@@ -11,7 +11,9 @@ PtzClient::PtzClient(QObject *parent)
       m_probeReply(nullptr),
       m_controlReply(nullptr),
       m_ready(false),
-      m_moveActive(false)
+      m_moveActive(false),
+      m_channelId(1),
+      m_ptzSpeed(4)
 {
 }
 
@@ -21,7 +23,8 @@ PtzClient::~PtzClient()
     stopMove();
 }
 
-void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString &password)
+void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString &password,
+                          int channelId)
 {
     if (m_probeReply != nullptr) {
         m_probeReply->abort();
@@ -37,6 +40,9 @@ void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString
     m_webUrl = webUrl;
     m_user = user;
     m_password = password;
+    /* 摄像头 API 使用从 1 开始的逻辑通道；非法值回退到首路。 */
+    m_channelId = qMax(1, channelId);
+    m_ptzSpeed = 4;
     m_moveActive = false;
     clearReadyState();
 }
@@ -70,7 +76,7 @@ void PtzClient::startMove(Direction direction)
         stopMove();
     }
     m_moveActive = true;
-    sendControl(buildControlQuery(direction, true));
+    sendControl(buildControlQuery(direction, true, m_channelId, m_ptzSpeed));
 }
 
 void PtzClient::stopMove()
@@ -80,7 +86,7 @@ void PtzClient::stopMove()
     }
     m_moveActive = false;
     if (m_ready) {
-        sendControl(buildControlQuery(Direction::Up, false));
+        sendControl(buildControlQuery(Direction::Up, false, m_channelId, m_ptzSpeed));
     }
 }
 
@@ -89,12 +95,37 @@ bool PtzClient::isReady() const
     return m_ready;
 }
 
-QUrlQuery PtzClient::buildControlQuery(Direction direction, bool start)
+QUrlQuery PtzClient::buildControlQuery(Direction direction, bool start,
+                                       int channelId, int speed)
 {
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("direction"), start ? directionName(direction) : QStringLiteral("stop"));
-    query.addQueryItem(QStringLiteral("move"), start ? QStringLiteral("start") : QStringLiteral("stop"));
+    /*
+     * 设备网页端并不接受抽象的 direction/move 字段，而是要求：
+     * channelId=逻辑通道、value=方向编码、speed=速度。
+     * 固定字段顺序便于抓包排查，也让离线测试可以锁定真实接口契约。
+     */
+    query.addQueryItem(QStringLiteral("channelId"), QString::number(qMax(1, channelId)));
+    query.addQueryItem(QStringLiteral("value"), deviceValue(direction, start));
+    query.addQueryItem(QStringLiteral("speed"), QString::number(qBound(1, speed, 100)));
     return query;
+}
+
+QString PtzClient::deviceValue(Direction direction, bool start)
+{
+    if (!start) {
+        return QStringLiteral("s");
+    }
+    switch (direction) {
+    case Direction::UpLeft: return QStringLiteral("1");
+    case Direction::Up: return QStringLiteral("u");
+    case Direction::UpRight: return QStringLiteral("2");
+    case Direction::Left: return QStringLiteral("l");
+    case Direction::Right: return QStringLiteral("r");
+    case Direction::DownLeft: return QStringLiteral("3");
+    case Direction::Down: return QStringLiteral("d");
+    case Direction::DownRight: return QStringLiteral("4");
+    }
+    return QStringLiteral("s");
 }
 
 QString PtzClient::directionName(Direction direction)
@@ -167,6 +198,12 @@ void PtzClient::handleProbeFinished()
     const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
     const QJsonObject object = document.object();
+    if (object.value(QStringLiteral("ptzSpeed")).isDouble()) {
+        const int reportedSpeed = object.value(QStringLiteral("ptzSpeed")).toInt();
+        if (reportedSpeed >= 1 && reportedSpeed <= 100) {
+            m_ptzSpeed = reportedSpeed;
+        }
+    }
     const bool supported = statusCode >= 200 && statusCode < 300
         && document.isObject()
         && (object.contains(QStringLiteral("ptzSpeed")) || object.contains(QStringLiteral("steps")));

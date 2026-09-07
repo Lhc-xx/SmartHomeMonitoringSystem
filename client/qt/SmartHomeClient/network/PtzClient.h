@@ -35,7 +35,9 @@ public:
     explicit PtzClient(QObject *parent = nullptr);
     ~PtzClient() override;
 
-    void setCamera(const QUrl &webUrl, const QString &user, const QString &password);
+    /* channelId 与设备网页端的逻辑通道一致，RTSP chn=0 对应默认值 1。 */
+    void setCamera(const QUrl &webUrl, const QString &user, const QString &password,
+                   int channelId = 1);
     void probe();
     void startMove(Direction direction);
     void stopMove();
@@ -43,7 +45,8 @@ public:
     bool isReady() const;
 
     /* 集中定义设备 API 的方向和开始/停止参数，便于离线断言和后续适配。 */
-    static QUrlQuery buildControlQuery(Direction direction, bool start);
+    static QUrlQuery buildControlQuery(Direction direction, bool start,
+                                       int channelId = 1, int speed = 4);
     static QString directionName(Direction direction);
 
 signals:
@@ -59,6 +62,8 @@ private:
     QUrl endpoint(const QString &path) const;
     void sendControl(const QUrlQuery &query);
     void clearReadyState();
+    /* 将方向转换为摄像头网页 API 的 value 字段，停止统一使用 s。 */
+    static QString deviceValue(Direction direction, bool start);
 
     QNetworkAccessManager *m_manager;
     QNetworkReply *m_probeReply;
@@ -68,6 +73,8 @@ private:
     QString m_password;
     bool m_ready;
     bool m_moveActive;
+    int m_channelId;
+    int m_ptzSpeed;
 };
 
 #endif // PTZCLIENT_H

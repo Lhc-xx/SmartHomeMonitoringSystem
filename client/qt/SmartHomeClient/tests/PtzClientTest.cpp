@@ -25,12 +25,16 @@ private:
 void PtzClientTest::buildsDirectionalQueries()
 {
     const QUrlQuery start = PtzClient::buildControlQuery(PtzClient::Direction::UpRight, true);
-    QCOMPARE(start.queryItemValue(QStringLiteral("direction")), QStringLiteral("up-right"));
-    QCOMPARE(start.queryItemValue(QStringLiteral("move")), QStringLiteral("start"));
+    /* 摄像头网页端实际使用 channelId/value/speed；value=2 表示右上。 */
+    QCOMPARE(start.queryItemValue(QStringLiteral("channelId")), QStringLiteral("1"));
+    QCOMPARE(start.queryItemValue(QStringLiteral("value")), QStringLiteral("2"));
+    QCOMPARE(start.queryItemValue(QStringLiteral("speed")), QStringLiteral("4"));
 
     const QUrlQuery stop = PtzClient::buildControlQuery(PtzClient::Direction::Down, false);
-    QCOMPARE(stop.queryItemValue(QStringLiteral("direction")), QStringLiteral("stop"));
-    QCOMPARE(stop.queryItemValue(QStringLiteral("move")), QStringLiteral("stop"));
+    /* 停止动作使用固定 value=s，与方向无关。 */
+    QCOMPARE(stop.queryItemValue(QStringLiteral("channelId")), QStringLiteral("1"));
+    QCOMPARE(stop.queryItemValue(QStringLiteral("value")), QStringLiteral("s"));
+    QCOMPARE(stop.queryItemValue(QStringLiteral("speed")), QStringLiteral("4"));
 }
 
 void PtzClientTest::respond(QTcpSocket *socket, const QByteArray &body)
@@ -72,10 +76,10 @@ void PtzClientTest::probesAndSendsOnlyToLocalFakeServer()
 
     client.startMove(PtzClient::Direction::Up);
     QTRY_VERIFY_WITH_TIMEOUT(requests.size() >= 2, 2000);
-    QVERIFY(requests.at(1).contains("GET /api/ptz/control?direction=up&move=start"));
+    QVERIFY(requests.at(1).contains("GET /api/ptz/control?channelId=1&value=u&speed=4"));
     client.stopMove();
     QTRY_VERIFY_WITH_TIMEOUT(requests.size() >= 3, 2000);
-    QVERIFY(requests.at(2).contains("GET /api/ptz/control?direction=stop&move=stop"));
+    QVERIFY(requests.at(2).contains("GET /api/ptz/control?channelId=1&value=s&speed=4"));
     QVERIFY(readySpy.count() >= 1);
 }
 
