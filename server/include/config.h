@@ -37,8 +37,6 @@ namespace smart_home {
         std::string mysqlUser() const;
 
         //MySQL 密码
-        //注意真实的密码只能放在本地的server.conf
-        //不允许提交Git
         std::string mysqlPassword() const;
 
         //项目使用的 数据库名称

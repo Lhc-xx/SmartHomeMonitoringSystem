@@ -27,8 +27,15 @@ bool FFmpegMediaSource::open(const std::string &url) {
 
     _url = url;
 
-    // 第 1 步：打开输入（封装层"大管家"），根据 url 自动识别协议和格式
-    int ret = avformat_open_input(&_fmtCtx, url.c_str(), nullptr, nullptr);
+    // 第 1 步：打开输入（封装层"大管家"），根据 url 自动识别协议和格式。
+    // RTSP 显式走 TCP（interleaved）：穿透 NAT/frp 内网穿透更可靠；
+    // 本地文件等非 RTSP 源不传该选项，避免被当作未知参数拒绝。
+    AVDictionary *options = nullptr;
+    if (url.compare(0, 7, "rtsp://") == 0) {
+        av_dict_set(&options, "rtsp_transport", "tcp", 0);
+    }
+    int ret = avformat_open_input(&_fmtCtx, url.c_str(), nullptr, &options);
+    av_dict_free(&options);
     if (ret < 0) {
         _fmtCtx = nullptr;
         return false;

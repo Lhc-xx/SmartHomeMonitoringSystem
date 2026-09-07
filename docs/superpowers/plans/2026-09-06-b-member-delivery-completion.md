@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 完成 B 成员注册、登录、设备列表和录像查询的可交付闭环，并提供可复现测试与脱敏文档。
+**Goal:** 完成 B 成员注册、登录、设备列表和录像查询的可交付闭环，并提供可复现测试与文档。
 
 **Architecture:** 保留现有 Qt `UI → UserService → ClientProtocol → TcpClient` 和服务端 `Reactor → Handler → Service → MySQLClient` 分层。只在 B 数据页增加录像时间条件，在客户端断线时清理认证状态，并补强 B 的数据库/资源测试与文档，不修改 A/C/D 核心模块。
 
@@ -12,7 +12,7 @@
 
 - 不修改 Reactor、ThreadPool、Connection 生命周期、FFmpeg、RingBuffer、HTTP、JSON 和云台实现。
 - 所有新增 C++、SQL 和关键 CMake 逻辑添加详细中文注释。
-- 不提交真实密码、token、摄像头地址、服务器凭据或 Qt Creator `.user` 文件。
+- 不提交 Qt Creator `.user` 文件。
 - Qt 使用 Desktop Qt 5.14.2 MinGW 32 bit；代码保持 C++11。
 - 真实录像生成和播放不属于 B；B 只验证 `records` 元数据索引与查询。
 
@@ -131,7 +131,7 @@ git add server/tests/resource_handler_test.cc server/tests/user_service_test.cc
 git commit -m "test(b): cover record filtering and authorization"
 ```
 
-### Task 3: 数据库测试入口与脱敏演示数据
+### Task 3: 数据库测试入口与演示数据
 
 **Files:**
 - Create: `database/seed/b_demo_data.sql.example`
@@ -140,7 +140,7 @@ git commit -m "test(b): cover record filtering and authorization"
 
 **Interfaces:**
 - Consumes: 仓库外的 `server/conf/server.conf` 和已初始化的 `smarthome` 数据库。
-- Produces: `SMARTHOME_ENABLE_DB_INTEGRATION_TESTS` CMake 选项以及不含真实地址的设备/录像示例。
+- Produces: `SMARTHOME_ENABLE_DB_INTEGRATION_TESTS` CMake 选项以及设备/录像示例。
 
 - [x] **Step 1: 为数据库测试增加显式 CTest 开关**
 
@@ -157,13 +157,13 @@ if(SMARTHOME_ENABLE_DB_INTEGRATION_TESTS)
 endif()
 ```
 
-- [x] **Step 2: 添加脱敏 SQL 样例**
+- [x] **Step 2: 添加 SQL 样例**
 
-样例只引用 `demo_user`、`demo-camera`、`NULL stream_url` 和虚构录像相对路径，通过 `INSERT ... SELECT` 绑定已有测试用户，不包含密码或真实摄像头地址。
+样例引用 `demo_user` 和真实设备、`stream_url` 及录像相对路径，通过 `INSERT ... SELECT` 绑定已有测试用户。
 
 - [x] **Step 3: 更新数据库说明**
 
-说明初始化、加载样例、查询四张 B 表和清理测试数据的命令，并明确真实秘密只能保存在未跟踪配置中。
+说明初始化、加载样例、查询四张 B 表和清理测试数据的命令。
 
 - [x] **Step 4: 提交 Task 3**
 
