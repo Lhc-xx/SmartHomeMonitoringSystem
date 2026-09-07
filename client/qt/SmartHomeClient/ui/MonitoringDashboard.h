@@ -44,7 +44,8 @@ public:
 signals:
     void eventLogged(const QString &message);
     void requestDeviceList();
-    void requestRecordList();
+    /* 工作台查询必须携带右侧服务端设备树当前选中的设备 ID。 */
+    void requestRecordList(quint64 deviceId);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -60,6 +61,7 @@ private:
     void appendEvent(const QString &message);
     void applySelectedCamera(QTreeWidgetItem *item);
     void setPtzButtonsEnabled(bool enabled);
+    quint64 selectedServerDeviceId() const;
     int slotForConfig(const CameraConfig &config, QList<bool> &usedSlots) const;
 
     QList<CameraConfig> m_cameraConfigs;

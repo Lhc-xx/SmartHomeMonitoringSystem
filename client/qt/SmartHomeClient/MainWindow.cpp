@@ -172,7 +172,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_dashboard, &MonitoringDashboard::requestDeviceList,
             this, &MainWindow::requestDevices);
     connect(m_dashboard, &MonitoringDashboard::requestRecordList,
-            this, &MainWindow::requestRecords);
+            this, &MainWindow::requestRecordsForDevice);
 
     /*
      * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
@@ -325,9 +325,18 @@ void MainWindow::requestRecords()
         m_dataStatus->setText(QStringLiteral("请先在左侧选择一个设备。"));
         return;
     }
-    const quint64 deviceId = m_deviceModel->deviceIdAt(selected.row());
+    requestRecordsForDevice(m_deviceModel->deviceIdAt(selected.row()));
+}
+
+void MainWindow::requestRecordsForDevice(quint64 deviceId)
+{
+    /*
+     * 登录后的监控工作台和旧数据页都复用同一条业务入口，区别只在于
+     * deviceId 的来源：工作台来自服务端设备树，数据页来自 QListView。
+     * 这样既修复工作台查询，又保留原有 B 数据页按钮行为。
+     */
     if (deviceId == 0) {
-        m_dataStatus->setText(QStringLiteral("所选设备标识无效。"));
+        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
         return;
     }
     QString startTime;
