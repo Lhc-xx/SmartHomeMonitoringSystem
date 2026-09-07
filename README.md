@@ -1,14 +1,27 @@
 # 智能家居监控系统
 
-这是一个面向小组协同开发的 C/S 智能家居监控系统基础工程骨架。
-当前阶段只提供：
+面向小组协同开发的 C/S 智能家居监控系统，MVP 主链路已闭环：
 
-- 服务器、Linux 客户端、Qt 客户端、公共模块的目录结构；
-- CMake 构建入口；
-- 一个最小可运行的 `Test` 测试类；
-- 脱敏配置示例、数据库脚本占位和协作文档入口。
+```text
+Qt 注册/登录 → Server + TLV + MySQL → 设备列表 → 一路实时流经服务器转发
+   → Qt FFmpeg 解码显示 → 云台经服务器转发 → 录像切片 + 元数据索引 + 回放
+```
 
-网络层（Reactor + ThreadPool）已完成，MySQL / FFmpeg / Qt 界面待实现
+## 功能状态
+
+| 模块 | 状态 |
+| --- | --- |
+| 服务器 Reactor + ThreadPool + 配置 + 日志（A） | ✅ |
+| TLV 协议 + 半包/粘包/非法长度（B） | ✅ |
+| MySQL 用户/设备/录像表 + 注册/登录/设备/录像查询（B） | ✅ |
+| FFmpeg 拉流 + 服务器转发 + Qt 解码显示（C） | ✅ |
+| 云台经服务器转发（libcurl + token + JSON）（D） | ✅ |
+| 录像真 MPEG-TS 切片 + records 索引 + 回放（C） | ✅ |
+
+## 依赖
+
+- **服务器（Ubuntu 22.04）**：CMake ≥ 3.16、g++、log4cpp、libmysqlclient、OpenSSL、FFmpeg（libavformat/avcodec/avutil）、libcurl、cJSON。
+- **Qt 客户端（Windows，Qt 5.14.2）**：Qt5 Widgets/Network；真 FFmpeg 解码需 MinGW 的 FFmpeg 开发库（`-DWITH_QT_FFMPEG=ON`），否则用 MockDecoder。
 
 ## 目录结构
 
@@ -104,9 +117,15 @@ make -C server test
 - 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件直接提交脱敏的 `server.conf` / `client.conf`。
 - 公共协议和数据结构先更新 `common/` 与 `docs/protocol/`，再分别实现服务器和客户端。
 
-## 当前最小验收标准
+## 验收状态（对照分工计划「六天最终验收」）
 
-- 能配置并生成 CMake 工程；
-- `Test` 类可被服务器测试程序调用；
-- 测试输出 `Test passed.` 并返回 0；
-- 三个主要模块均有清晰的后续代码放置位置。
+- [x] Server 可读取配置、写日志并稳定启动
+- [x] TLV 可处理正常包、半包、粘包和非法长度
+- [x] Qt 注册、登录和设备列表可用
+- [x] 至少一路实时流经过 Server 到 Qt 显示
+- [x] 云台八方向请求经过 Server 转发
+- [x] 录像文件、数据库索引和回放结果对应
+- [x] 服务器、Qt 客户端、Linux C 测试客户端有运行说明
+- [x] 有协议文档、数据库 SQL、测试报告和演示脚本
+
+详细测试记录见 [`docs/testing/README.md`](docs/testing/README.md)。
