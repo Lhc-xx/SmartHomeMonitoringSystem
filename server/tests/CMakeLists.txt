@@ -107,3 +107,44 @@ target_link_libraries(recorder_test PRIVATE pthread)
 target_compile_features(recorder_test PRIVATE cxx_std_11)
 target_include_directories(recorder_test PRIVATE ${SERVER_INCLUDE_DIR})
 add_test(NAME recorder_test COMMAND recorder_test)
+
+#[[线程池测试（角色 A）：不依赖第三方库，自动加入 CTest。]]
+add_executable(thread_pool_test
+    thread_pool_test.cc ../src/thread_pool.cc)
+target_link_libraries(thread_pool_test PRIVATE pthread)
+target_compile_features(thread_pool_test PRIVATE cxx_std_11)
+target_include_directories(thread_pool_test PRIVATE ${SERVER_INCLUDE_DIR})
+add_test(NAME thread_pool_test COMMAND thread_pool_test)
+
+#[[假媒体源测试（角色 C 的 MockMediaSource，无 FFmpeg 依赖）：自动加入 CTest。]]
+add_executable(mock_media_source_test
+    test_mock_media_source.cc ../src/media/mock_media_source.cc)
+target_link_libraries(mock_media_source_test PRIVATE smart_home_common pthread)
+target_compile_features(mock_media_source_test PRIVATE cxx_std_11)
+target_include_directories(mock_media_source_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME mock_media_source_test COMMAND mock_media_source_test)
+
+#[[Reactor 集成测试（角色 A）：连接/未登录拦截/断线/重连/空闲回收/停止。
+    不依赖 MySQL 运行（不注入 Auth/Resource handler），但链接需要完整 server 依赖。]]
+add_executable(reactor_test
+    reactor_test.cc
+    ../src/reactor.cc
+    ../src/connection.cc
+    ../src/thread_pool.cc
+    ../src/stream_session.cc
+    ../src/recorder.cc
+    ../src/logger.cc
+    ../src/config.cc
+    ../src/media/mock_media_source.cc
+    ../src/MySQLClient.cc
+    ../src/UserService.cc
+    ../src/AuthHandler.cc
+    ../src/DeviceService.cc
+    ../src/RecordService.cc
+    ../src/ResourceHandler.cc
+)
+target_link_libraries(reactor_test PRIVATE
+    smart_home_common ${MYSQLCLIENT_LIBRARY} OpenSSL::Crypto log4cpp pthread)
+target_compile_features(reactor_test PRIVATE cxx_std_11)
+target_include_directories(reactor_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME reactor_test COMMAND reactor_test)
