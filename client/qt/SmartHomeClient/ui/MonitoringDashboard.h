@@ -87,6 +87,11 @@ private:
     QList<QPushButton *> m_ptzButtons;
     QList<QPushButton *> m_auxPtzButtons;
     QList<ClientProtocol::DeviceInfo> m_devices;
+    /*
+     * 保存 MainWindow 提供的服务器转发入口，但只在所选球机显式配置为
+     * Server 时注入 PtzClient；Direct 模式必须保持空回调并走本机 HTTP。
+     */
+    std::function<void(const QString &, const QString &, const QString &)> m_controlForwarder;
 
     QListWidget *m_eventList;
     QLabel *m_statusLabel;

@@ -344,10 +344,11 @@ void MonitoringDashboard::setCameraConfigs(const QList<CameraConfig> &configs)
 void MonitoringDashboard::setControlForwarder(
     const std::function<void(const QString &, const QString &, const QString &)> &forwarder)
 {
-    /* 注入后云台控制改经服务器转发，能力探测仍直连摄像头只读接口。 */
-    if (m_ptzClient != nullptr) {
-        m_ptzClient->setControlForwarder(forwarder);
-    }
+    /*
+     *这里只保存备用转发入口，不能立即覆盖 PtzClient 的直连行为。
+     * 具体选择 direct/server 必须等用户选中球机并读取该设备配置后决定。
+     */
+    m_controlForwarder = forwarder;
 }
 
 void MonitoringDashboard::setDevices(const QList<ClientProtocol::DeviceInfo> &devices)
@@ -503,6 +504,9 @@ void MonitoringDashboard::applySelectedCamera(QTreeWidgetItem *item)
     const QString type = item == nullptr ? QString() : item->data(0, Qt::UserRole).toString();
     setPtzButtonsEnabled(false);
     if (type != QStringLiteral("dome")) {
+        /* 退出球机时同时清除目标与转发回调，防止旧设备控制状态残留。 */
+        m_ptzClient->setControlForwarder(
+            std::function<void(const QString &, const QString &, const QString &)>());
         m_ptzClient->setCamera(QUrl(), QString(), QString());
         m_statusLabel->setText(QStringLiteral("枪机不支持云台控制"));
         return;
@@ -510,12 +514,25 @@ void MonitoringDashboard::applySelectedCamera(QTreeWidgetItem *item)
 
     for (const CameraConfig &config : m_cameraConfigs) {
         if (config.type == QStringLiteral("dome")) {
+            /*
+             * 局域网摄像头默认由本机直连；只有配置显式指定 Server 时，
+             * 才使用 MainWindow 保存的 UserService/TLV 转发回调。
+             */
+            if (config.ptzTransport == CameraConfig::PtzTransport::Server) {
+                m_ptzClient->setControlForwarder(m_controlForwarder);
+            } else {
+                m_ptzClient->setControlForwarder(
+                    std::function<void(const QString &, const QString &, const QString &)>());
+            }
             m_ptzClient->setCamera(QUrl(config.webUrl), config.user, config.password);
             m_ptzClient->probe();
             m_statusLabel->setText(QStringLiteral("正在探测球机云台能力"));
             return;
         }
     }
+    m_ptzClient->setControlForwarder(
+        std::function<void(const QString &, const QString &, const QString &)>());
+    m_ptzClient->setCamera(QUrl(), QString(), QString());
     m_statusLabel->setText(QStringLiteral("未配置球机 Web 地址"));
 }
 

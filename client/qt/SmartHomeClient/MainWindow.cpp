@@ -182,7 +182,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_userService = new UserService(m_tcpClient, this);
     m_loginWidget = new LoginWidget(m_userService, this);
     m_dashboard = new MonitoringDashboard(this);
-    /* 云台控制经服务器转发：工作台把 direction/move 交给 UserService 发 TLV。 */
+    /*
+     * 提供服务器转发作为可选路径；工作台只有在球机配置明确选择 server 时
+     * 才调用此回调，局域网 direct 模式会由 PtzClient 直接访问摄像头。
+     */
     m_dashboard->setControlForwarder(
         [this](const QString &cameraUrl, const QString &direction, const QString &move) {
             m_userService->sendPtzControl(cameraUrl, direction, move);
