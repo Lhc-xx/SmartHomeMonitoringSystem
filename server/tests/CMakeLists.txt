@@ -131,7 +131,7 @@ add_executable(reactor_test
     ../src/reactor.cc
     ../src/connection.cc
     ../src/thread_pool.cc
-    ../src/stream_session.cc
+    ../src/media/stream_session.cc
     ../src/recorder.cc
     ../src/logger.cc
     ../src/config.cc
@@ -148,3 +148,53 @@ target_link_libraries(reactor_test PRIVATE
 target_compile_features(reactor_test PRIVATE cxx_std_11)
 target_include_directories(reactor_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME reactor_test COMMAND reactor_test)
+
+#[[流会话测试（角色 C）：Mock 源 + 统一版 StreamSession，无 FFmpeg 依赖，自动加入 CTest。]]
+add_executable(stream_session_test
+    test_stream_session.cc
+    ../src/media/mock_media_source.cc
+    ../src/media/stream_session.cc
+    ../src/recorder.cc
+)
+target_link_libraries(stream_session_test PRIVATE smart_home_common pthread)
+target_compile_features(stream_session_test PRIVATE cxx_std_11)
+target_include_directories(stream_session_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME stream_session_test COMMAND stream_session_test)
+
+#[[录像切片测试（角色 C）：TsSegmenter，无 FFmpeg 依赖，自动加入 CTest。]]
+add_executable(ts_segmenter_test
+    test_ts_segmenter.cc
+    ../src/media/mock_media_source.cc
+    ../src/media/ts_segmenter.cc
+)
+target_link_libraries(ts_segmenter_test PRIVATE smart_home_common pthread)
+target_compile_features(ts_segmenter_test PRIVATE cxx_std_11)
+target_include_directories(ts_segmenter_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME ts_segmenter_test COMMAND ts_segmenter_test)
+
+#[[端到端集成测试（角色 C）：Mock + FFmpeg + 重组器。需 FFmpeg 开发库，未安装则跳过。]]
+find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h)
+find_library(AVFORMAT_LIBRARY avformat)
+find_library(AVCODEC_LIBRARY avcodec)
+find_library(AVUTIL_LIBRARY avutil)
+if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIBRARY AND AVCODEC_LIBRARY AND AVUTIL_LIBRARY)
+    add_executable(integration_test
+        test_integration.cc
+        ../../common/src/media_reassembler.cc
+        ../src/media/mock_media_source.cc
+        ../src/media/ffmpeg_media_source.cc
+        ../src/media/stream_session.cc
+        ../src/recorder.cc
+    )
+    target_link_libraries(integration_test PRIVATE
+        smart_home_common ${AVFORMAT_LIBRARY} ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} pthread)
+    target_compile_features(integration_test PRIVATE cxx_std_11)
+    target_include_directories(integration_test PRIVATE
+        ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR} ${FFMPEG_INCLUDE_DIR})
+    add_test(NAME integration_test COMMAND integration_test)
+    set_tests_properties(integration_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+else()
+    message(WARNING "FFmpeg dev libraries not found, skipping integration_test")
+endif()
+
