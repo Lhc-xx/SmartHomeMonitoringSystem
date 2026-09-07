@@ -37,6 +37,8 @@ MonitoringDashboard::MonitoringDashboard(QWidget *parent)
       m_statusLabel(nullptr),
       m_deviceTree(nullptr),
       m_ptzPanel(nullptr),
+      m_recordControlButton(nullptr),
+      m_recordingActive(false),
       m_ptzClient(new PtzClient(this)),
       m_gunItem(nullptr),
       m_domeItem(nullptr)
@@ -97,10 +99,13 @@ void MonitoringDashboard::buildUi()
     QPushButton *recordButton = makeNavButton(QStringLiteral("录像查询"), header);
     QPushButton *playbackButton = makeNavButton(QStringLiteral("回放"), header);
     QPushButton *deviceButton = makeNavButton(QStringLiteral("设备数据"), header);
+    m_recordControlButton = makeNavButton(QStringLiteral("开始录像"), header);
+    m_recordControlButton->setObjectName(QStringLiteral("recordControlButton"));
     headerLayout->addWidget(previewButton);
     headerLayout->addWidget(recordButton);
     headerLayout->addWidget(playbackButton);
     headerLayout->addWidget(deviceButton);
+    headerLayout->addWidget(m_recordControlButton);
     root->addWidget(header);
 
     QHBoxLayout *content = new QHBoxLayout;
@@ -208,6 +213,15 @@ void MonitoringDashboard::buildUi()
     connect(deviceButton, &QPushButton::clicked, this, [this]() {
         emit requestDeviceList();
         appendEvent(QStringLiteral("正在请求设备列表"));
+    });
+    connect(m_recordControlButton, &QPushButton::clicked, this, [this]() {
+        if (m_recordingActive) {
+            emit requestRecordStop();
+            appendEvent(QStringLiteral("正在停止录像"));
+            return;
+        }
+        emit requestRecordStart(selectedServerDeviceId());
+        appendEvent(QStringLiteral("正在请求开始录像"));
     });
 
     m_deviceTree->setCurrentItem(m_gunItem);
@@ -352,6 +366,19 @@ void MonitoringDashboard::setDevices(const QList<ClientProtocol::DeviceInfo> &de
     }
     serverRoot->setExpanded(true);
     m_statusLabel->setText(QStringLiteral("已同步 %1 个服务端设备").arg(devices.size()));
+}
+
+void MonitoringDashboard::setRecordingActive(bool active)
+{
+    m_recordingActive = active;
+    if (m_recordControlButton != nullptr) {
+        m_recordControlButton->setText(active ? QStringLiteral("停止录像")
+                                               : QStringLiteral("开始录像"));
+    }
+    if (m_statusLabel != nullptr) {
+        m_statusLabel->setText(active ? QStringLiteral("录像进行中")
+                                      : QStringLiteral("录像已停止"));
+    }
 }
 
 void MonitoringDashboard::startPreview()

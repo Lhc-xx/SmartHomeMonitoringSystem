@@ -45,6 +45,8 @@ private slots:
     void updateRecords(const QList<ClientProtocol::RecordInfo> &records);
     void showRequestError(const QString &reason);
     void handlePlaybackRequest(quint64 deviceId);
+    void handleRecordStart(quint64 deviceId);
+    void handleRecordStop();
 
 private:
     QWidget *createDataPage();

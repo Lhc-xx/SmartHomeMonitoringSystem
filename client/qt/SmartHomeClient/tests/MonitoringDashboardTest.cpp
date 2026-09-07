@@ -21,6 +21,7 @@ private slots:
     void createsFourChannelsAndDeviceTree();
     void hidesRedundantHeaderBranding();
     void recordQueryCarriesSelectedServerDeviceId();
+    void recordControlsCarrySelectedServerDeviceId();
 };
 
 void MonitoringDashboardTest::createsFourChannelsAndDeviceTree()
@@ -81,6 +82,39 @@ void MonitoringDashboardTest::recordQueryCarriesSelectedServerDeviceId()
     QVERIFY2(requestSpy.at(0).size() == 1,
              "录像查询信号必须携带当前服务端设备 ID");
     QCOMPARE(requestSpy.at(0).at(0).toULongLong(), static_cast<qulonglong>(42));
+}
+
+void MonitoringDashboardTest::recordControlsCarrySelectedServerDeviceId()
+{
+    MonitoringDashboard dashboard;
+    ClientProtocol::DeviceInfo device;
+    device.id = 42;
+    device.name = QStringLiteral("测试设备");
+    device.type = QStringLiteral("camera");
+    device.status = QStringLiteral("online");
+    dashboard.setDevices(QList<ClientProtocol::DeviceInfo>() << device);
+
+    QTreeWidgetItem *serverRoot = dashboard.deviceTree()->findItems(
+        QStringLiteral("服务端设备"), Qt::MatchExactly).value(0);
+    QVERIFY(serverRoot != nullptr);
+    QVERIFY(serverRoot->childCount() == 1);
+    dashboard.deviceTree()->setCurrentItem(serverRoot->child(0));
+
+    QPushButton *recordControl = dashboard.findChild<QPushButton *>(
+        QStringLiteral("recordControlButton"));
+    QVERIFY(recordControl != nullptr);
+    QCOMPARE(recordControl->text(), QStringLiteral("开始录像"));
+
+    QSignalSpy startSpy(&dashboard, &MonitoringDashboard::requestRecordStart);
+    QSignalSpy stopSpy(&dashboard, &MonitoringDashboard::requestRecordStop);
+    recordControl->click();
+    QCOMPARE(startSpy.count(), 1);
+    QCOMPARE(startSpy.at(0).at(0).toULongLong(), static_cast<qulonglong>(42));
+
+    dashboard.setRecordingActive(true);
+    QCOMPARE(recordControl->text(), QStringLiteral("停止录像"));
+    recordControl->click();
+    QCOMPARE(stopSpy.count(), 1);
 }
 
 QTEST_MAIN(MonitoringDashboardTest)

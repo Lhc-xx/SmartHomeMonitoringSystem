@@ -39,6 +39,8 @@ public:
 
     void setCameraConfigs(const QList<CameraConfig> &configs);
     void setDevices(const QList<ClientProtocol::DeviceInfo> &devices);
+    /* 根据服务器响应切换录像按钮，避免请求尚未成功时误显示“停止录像”。 */
+    void setRecordingActive(bool active);
     /* 注入云台转发回调（参数：cameraUrl, direction, move），用于经服务器转发。 */
     void setControlForwarder(const std::function<void(const QString &, const QString &, const QString &)> &forwarder);
     void startPreview();
@@ -55,6 +57,9 @@ signals:
     void requestRecordList(quint64 deviceId);
     /* 回放所选设备最近录像。 */
     void requestPlayback(quint64 deviceId);
+    /* 录像控制只携带当前服务端设备 ID，不允许使用本地树节点的序号代替。 */
+    void requestRecordStart(quint64 deviceId);
+    void requestRecordStop();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -87,6 +92,8 @@ private:
     QLabel *m_statusLabel;
     QTreeWidget *m_deviceTree;
     QGroupBox *m_ptzPanel;
+    QPushButton *m_recordControlButton;
+    bool m_recordingActive;
     PtzClient *m_ptzClient;
     QTreeWidgetItem *m_gunItem;
     QTreeWidgetItem *m_domeItem;
