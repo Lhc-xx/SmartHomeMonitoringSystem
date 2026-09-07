@@ -51,6 +51,9 @@ void StreamSession::stop() {
 }
 
 bool StreamSession::nextSendPacket(std::vector<uint8_t> &out) {
+    if (!_running.load()) {
+        return false;             // 未启动或已停止：直接返回，避免消费者永久阻塞
+    }
     return _sendQueue.pop(out);   // 阻塞取，队列 close 后返回 false
 }
 
