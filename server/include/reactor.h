@@ -14,6 +14,7 @@
 namespace smart_home {
     class AuthHandler;
     class PtzHandler;
+    class RecordService;
     class ResourceHandler;
     class TsRecorder;
     namespace media { class StreamSession; } // 流会话存储（媒体转发核心）
@@ -27,6 +28,7 @@ namespace smart_home {
         void setAuthHandler(AuthHandler* handler);
         void setResourceHandler(ResourceHandler* handler);
         void setPtzHandler(PtzHandler* handler); // 云台转发处理器，由 main 注入
+        void setRecordService(RecordService* service); // 录像元数据写入，由 main 注入
         void setSessionTimeout(int seconds); // 登录会话超时（秒），<=0 永不超时
         void setVideoPath(const std::string &path); // 录像文件保存目录
         void setIdleTimeout(int seconds); // 连接空闲回收超时（秒），<=0 永不回收
@@ -36,10 +38,13 @@ namespace smart_home {
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
         ResourceHandler* _resourceHandler = nullptr; // 资源处理器，由 main 注入
         PtzHandler* _ptzHandler = nullptr;    // 云台转发处理器，由 main 注入
+        RecordService* _recordService = nullptr; // 录像元数据写入，由 main 注入
         std::map<int, std::shared_ptr<media::StreamSession>> _streams;   // fd -> 流会话
         std::map<int, std::string> _streamUrls;                          // fd -> 推流 URL（录像用）
         std::map<int, std::shared_ptr<TsRecorder>> _recorders;           // fd -> TS 录像器
-        std::mutex _streamsMutex;                                 // 保护 _streams / _streamUrls / _recorders
+        std::map<int, uint64_t> _recordDeviceIds;                        // fd -> 录像 deviceId
+        std::map<int, std::string> _recordStartTimes;                    // fd -> 录像开始时间
+        std::mutex _streamsMutex;                                 // 保护上面各 map
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
         void checkIdleConnections();   // 扫描并回收空闲连接
         void sendUnauthorized(std::shared_ptr<Connection> conn, const TlvMessage &msg,

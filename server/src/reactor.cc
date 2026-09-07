@@ -9,6 +9,7 @@
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
 #include "PtzHandler.h"
+#include "RecordService.h"
 #include "TsRecorder.h"
 #include "media/stream_session.h"
 #include "media/mock_media_source.h"
@@ -62,6 +63,15 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
     (void)url;
 #endif
     return std::unique_ptr<media::MediaSource>(new media::MockMediaSource());
+}
+
+// 把 time_t 格式化为 records 表 DATETIME 用的 "yyyy-MM-dd HH:mm:ss"。
+std::string formatDbTime(time_t t) {
+    struct tm tmv{};
+    localtime_r(&t, &tmv);
+    char buf[32] = {0};
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmv);
+    return std::string(buf);
 }
 
 }  // namespace
@@ -216,6 +226,8 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                 rit->second->stop();
                 _recorders.erase(rit);
             }
+            _recordDeviceIds.erase(fd);
+            _recordStartTimes.erase(fd);
         }
 
         auto it = _conn.find(fd);
@@ -251,6 +263,10 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
 
     void Reactor::setPtzHandler(PtzHandler* handler){
         _ptzHandler = handler;
+    }
+
+    void Reactor::setRecordService(RecordService* service){
+        _recordService = service;
     }
 
     void Reactor::setSessionTimeout(int seconds){
@@ -388,6 +404,8 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                         rit->second->stop();
                         _recorders.erase(rit);
                     }
+                    _recordDeviceIds.erase(conn->fd());
+                    _recordStartTimes.erase(conn->fd());
                 }
                 break;
 
@@ -425,6 +443,8 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                         } else {
                             std::lock_guard<std::mutex> guard(_streamsMutex);
                             _recorders[conn->fd()] = recorder;
+                            _recordDeviceIds[conn->fd()] = deviceId;
+                            _recordStartTimes[conn->fd()] = formatDbTime(time(nullptr));
                             LOG_INFO(("record start, fd=" + std::to_string(conn->fd())
                                       + " dir=" + outDir + " url=" + url).c_str());
                         }
@@ -449,8 +469,33 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                     } else {
                         recorder->stop();
                         const std::vector<std::string> files = recorder->producedFiles();
+
+                        uint64_t deviceId = 0;
+                        std::string startTime;
+                        {
+                            std::lock_guard<std::mutex> guard(_streamsMutex);
+                            auto dit = _recordDeviceIds.find(conn->fd());
+                            if (dit != _recordDeviceIds.end()) {
+                                deviceId = dit->second;
+                                _recordDeviceIds.erase(dit);
+                            }
+                            auto sit = _recordStartTimes.find(conn->fd());
+                            if (sit != _recordStartTimes.end()) {
+                                startTime = sit->second;
+                                _recordStartTimes.erase(sit);
+                            }
+                        }
+                        const std::string endTime = formatDbTime(time(nullptr));
+
+                        // 每个 TS 片段写一条录像元数据索引（录像文件、数据库索引对应）
+                        if (_recordService != nullptr) {
+                            for (const std::string &f : files) {
+                                _recordService->addRecord(deviceId, f, startTime, endTime);
+                            }
+                        }
                         LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
-                                  + " segments=" + std::to_string(files.size())).c_str());
+                                  + " segments=" + std::to_string(files.size())
+                                  + " device=" + std::to_string(deviceId)).c_str());
                     }
                 }
                 break;
