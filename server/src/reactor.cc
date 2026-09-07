@@ -8,7 +8,7 @@
 #include "session_policy.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
-#include "stream_session.h"
+#include "media/stream_session.h"
 #include "media/mock_media_source.h"
 
 #include <cerrno>
@@ -301,9 +301,9 @@ namespace smart_home {
                 {
                     // 创建假媒体源 + 流会话，启动并保存
                     std::unique_ptr<media::MockMediaSource> source(new media::MockMediaSource());
-                    source->open("mock://test");
-                    auto session = std::make_shared<StreamSession>(conn, std::move(source));
-                    session->start();
+                    auto session = std::make_shared<media::StreamSession>(std::move(source));
+                    session->setSink([conn](const std::vector<uint8_t> &bytes) { conn->sendData(bytes); });
+                    session->start("mock://test");
                     std::lock_guard<std::mutex> guard(_streamsMutex);
                     _streams[conn->fd()] = session;
                 }
@@ -331,7 +331,7 @@ namespace smart_home {
                             deviceId = (deviceId << 8) | msg.value[i];
                         }
                     }
-                    std::shared_ptr<StreamSession> session;
+                    std::shared_ptr<media::StreamSession> session;
                     {
                         std::lock_guard<std::mutex> guard(_streamsMutex);
                         auto it = _streams.find(conn->fd());
@@ -359,7 +359,7 @@ namespace smart_home {
             case MessageType::RECORD_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
                 {
-                    std::shared_ptr<StreamSession> session;
+                    std::shared_ptr<media::StreamSession> session;
                     {
                         std::lock_guard<std::mutex> guard(_streamsMutex);
                         auto it = _streams.find(conn->fd());

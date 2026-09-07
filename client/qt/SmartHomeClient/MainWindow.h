@@ -38,6 +38,7 @@ private slots:
     void showDataPage(quint64 userId);
     void requestDevices();
     void requestRecords();
+    void requestRecordsForDevice(quint64 deviceId);
     void updateDevices(const QList<ClientProtocol::DeviceInfo> &devices);
     void updateRecords(const QList<ClientProtocol::RecordInfo> &records);
     void showRequestError(const QString &reason);
