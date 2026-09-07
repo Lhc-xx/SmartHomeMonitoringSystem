@@ -92,11 +92,12 @@ bool readLengthString(const std::vector<uint8_t> &buffer, std::size_t &position,
 /* 双字符串请求的统一实现，确保注册与登录不因复制代码出现格式漂移。 */
 bool encodeCredentials(const std::string &username, const std::string &password,
                        std::vector<uint8_t> &value) {
+  /* 失败时也清空输出，避免调用方误把上一次成功请求重新发送。 */
+  value.clear();
   if (username.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max()) ||
       password.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
-  value.clear();
   value.reserve(4U + username.size() + password.size());
   return appendLengthString(value, username) && appendLengthString(value, password);
 }
@@ -195,10 +196,10 @@ bool AuthProtocol::decodeLoginRequest(const std::vector<uint8_t> &value,
 bool AuthProtocol::encodeLoginResponse(uint64_t userId, const std::string &token,
                                        ErrorCode errorCode,
                                        std::vector<uint8_t> &value) {
+  value.clear();
   if (token.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
-  value.clear();
   value.reserve(14U + token.size());
   appendUint64BE(value, userId);
   appendLengthString(value, token);

@@ -17,6 +17,7 @@ class PtzClientTest : public QObject
 private slots:
     void buildsDirectionalQueries();
     void probesAndSendsOnlyToLocalFakeServer();
+    void ignoresFinishedFromSupersededProbe();
 
 private:
     static void respond(QTcpSocket *socket, const QByteArray &body);
@@ -77,6 +78,39 @@ void PtzClientTest::probesAndSendsOnlyToLocalFakeServer()
     QTRY_VERIFY_WITH_TIMEOUT(requests.size() >= 3, 2000);
     QVERIFY(requests.at(2).contains("GET /api/ptz/control?direction=stop&move=stop"));
     QVERIFY(readySpy.count() >= 1);
+}
+
+void PtzClientTest::ignoresFinishedFromSupersededProbe()
+{
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QList<QByteArray> requests;
+    connect(&server, &QTcpServer::newConnection, this, [&server, &requests]() {
+        QTcpSocket *socket = server.nextPendingConnection();
+        connect(socket, &QTcpSocket::readyRead, socket, [socket, &requests]() {
+            requests.append(socket->readAll());
+            if (requests.size() == 1) {
+                /* 第一条探测故意不回复；客户端第二次 probe 会将其取消。 */
+                return;
+            }
+            PtzClientTest::respond(socket, QByteArray("{\"ptzSpeed\":4}"));
+        });
+    });
+
+    PtzClient client;
+    QSignalSpy errorSpy(&client, &PtzClient::errorOccurred);
+    client.setCamera(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())),
+                     QStringLiteral("test-user"), QStringLiteral("test-password"));
+    client.probe();
+    QTRY_COMPARE_WITH_TIMEOUT(requests.size(), 1, 2000);
+
+    /* 第二次探测成功后，旧请求的取消回调不能把 ready 状态改回失败。 */
+    client.probe();
+    QTRY_VERIFY_WITH_TIMEOUT(client.isReady(), 2000);
+    QTest::qWait(100);
+    QVERIFY(client.isReady());
+    QCOMPARE(errorSpy.count(), 0);
 }
 
 QTEST_GUILESS_MAIN(PtzClientTest)

@@ -1,4 +1,5 @@
 #include "protocol/DeviceProtocol.h"
+#include "protocol/Protocol.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -87,15 +88,21 @@ bool isEncodable(const DeviceInfo &device) {
          device.status.size() <= limit;
 }
 
+/* 累加响应长度前先比较上限，避免 size_t 加法在异常输入下溢出或分配巨量内存。 */
+bool canAppend(std::size_t current, std::size_t additional) {
+  const std::size_t limit = static_cast<std::size_t>(MAX_TLV_BODY_SIZE);
+  return additional <= limit && current <= limit - additional;
+}
+
 }  // namespace
 
 bool DeviceProtocol::encodeDeviceListRequest(uint64_t userId,
                                               const std::string &token,
                                               std::vector<uint8_t> &value) {
+  value.clear();
   if (token.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
-  value.clear();
   value.reserve(10U + token.size());
   appendUint64BE(value, userId);
   return appendString(value, token);
@@ -117,15 +124,22 @@ bool DeviceProtocol::decodeDeviceListRequest(const std::vector<uint8_t> &value,
 bool DeviceProtocol::encodeDeviceListResponse(
     ErrorCode errorCode, const std::vector<DeviceInfo> &devices,
     std::vector<uint8_t> &value) {
+  value.clear();
   if (devices.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
+  std::size_t bodySize = 6U;  // errorCode:uint32 + count:uint16
+  if (!canAppend(0U, bodySize)) return false;
   for (std::vector<DeviceInfo>::const_iterator it = devices.begin();
        it != devices.end(); ++it) {
     if (!isEncodable(*it)) return false;
+    const std::size_t itemSize = 8U + 2U + it->deviceName.size()
+        + 2U + it->deviceType.size() + 2U + it->status.size();
+    if (!canAppend(bodySize, itemSize)) return false;
+    bodySize += itemSize;
   }
 
-  value.clear();
+  value.reserve(bodySize);
   appendUint32BE(value, static_cast<uint32_t>(static_cast<int32_t>(errorCode)));
   appendUint16BE(value, static_cast<uint16_t>(devices.size()));
   for (std::vector<DeviceInfo>::const_iterator it = devices.begin();
@@ -142,6 +156,7 @@ bool DeviceProtocol::encodeDeviceListResponse(
 bool DeviceProtocol::decodeDeviceListResponse(
     const std::vector<uint8_t> &value, ErrorCode &errorCode,
     std::vector<DeviceInfo> &devices) {
+  if (value.size() > static_cast<std::size_t>(MAX_TLV_BODY_SIZE)) return false;
   std::size_t position = 0U;
   uint32_t rawCode = 0U;
   uint16_t count = 0U;

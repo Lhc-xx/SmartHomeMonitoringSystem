@@ -92,6 +92,29 @@ target_compile_features(connection_session_test PRIVATE cxx_std_11)
 target_include_directories(connection_session_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME connection_session_test COMMAND connection_session_test)
 
+#[[Connection 非阻塞发送队列测试：socketpair 模拟慢客户端，验证部分写与 EPOLLOUT 状态。]]
+add_executable(connection_output_test
+    connection_output_test.cc ../src/connection.cc)
+target_link_libraries(connection_output_test PRIVATE smart_home_common pthread)
+target_compile_features(connection_output_test PRIVATE cxx_std_11)
+target_include_directories(connection_output_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+add_test(NAME connection_output_test COMMAND connection_output_test)
+
+#[[PTZ 输入白名单测试：只验证非法 URL/动作被拒绝，不访问真实摄像头。]]
+add_executable(ptz_handler_test
+    ptz_handler_test.cc
+    ../src/PtzHandler.cc
+    ../src/PtzHttpClient.cc
+    ../src/logger.cc)
+target_link_libraries(ptz_handler_test PRIVATE
+    smart_home_common OpenSSL::Crypto log4cpp pthread
+    ${CURL_LIBRARY} ${CJSON_LIBRARY})
+target_compile_features(ptz_handler_test PRIVATE cxx_std_11)
+target_include_directories(ptz_handler_test PRIVATE
+    ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIR} ${CJSON_INCLUDE_DIR})
+add_test(NAME ptz_handler_test COMMAND ptz_handler_test)
+
 #[[未登录拦截策略纯逻辑（角色 A）：不依赖第三方库，自动加入 CTest。]]
 add_executable(session_policy_test
     session_policy_test.cc)
@@ -107,6 +130,14 @@ target_link_libraries(recorder_test PRIVATE pthread)
 target_compile_features(recorder_test PRIVATE cxx_std_11)
 target_include_directories(recorder_test PRIVATE ${SERVER_INCLUDE_DIR})
 add_test(NAME recorder_test COMMAND recorder_test)
+
+#[[TsRecorder 启动握手测试：不访问摄像头，验证 ffmpeg exec 失败会正确返回 false。]]
+add_executable(ts_recorder_test
+    ts_recorder_test.cc ../src/TsRecorder.cc)
+target_link_libraries(ts_recorder_test PRIVATE pthread)
+target_compile_features(ts_recorder_test PRIVATE cxx_std_11)
+target_include_directories(ts_recorder_test PRIVATE ${SERVER_INCLUDE_DIR})
+add_test(NAME ts_recorder_test COMMAND ts_recorder_test)
 
 #[[线程池测试（角色 A）：不依赖第三方库，自动加入 CTest。]]
 add_executable(thread_pool_test

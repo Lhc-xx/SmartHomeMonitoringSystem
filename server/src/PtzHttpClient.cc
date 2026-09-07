@@ -71,6 +71,11 @@ bool PtzHttpClient::httpGet(const std::string &url, std::string &outBody) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &outBody);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+    /* 摄像头地址来自客户端字段，禁止重定向和非 HTTP(S) 协议，避免绕过白名单。 */
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     const CURLcode res = curl_easy_perform(curl);
     long status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);

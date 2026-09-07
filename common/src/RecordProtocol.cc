@@ -1,4 +1,5 @@
 #include "protocol/RecordProtocol.h"
+#include "protocol/Protocol.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -86,18 +87,24 @@ bool isEncodable(const RecordInfo &record) {
          record.endTime.size() <= limit;
 }
 
+/* 录像响应由数据库结果组成，编码前逐项检查统一 value 上限，避免内存放大。 */
+bool canAppend(std::size_t current, std::size_t additional) {
+  const std::size_t limit = static_cast<std::size_t>(MAX_TLV_BODY_SIZE);
+  return additional <= limit && current <= limit - additional;
+}
+
 }  // namespace
 
 bool RecordProtocol::encodeRecordQueryRequest(
     uint64_t userId, const std::string &token, uint64_t deviceId,
     const std::string &startTime, const std::string &endTime,
     std::vector<uint8_t> &value) {
+  value.clear();
   if (token.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max()) ||
       startTime.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max()) ||
       endTime.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
-  value.clear();
   value.reserve(28U + token.size() + startTime.size() + endTime.size());
   appendUint64BE(value, userId);
   appendString(value, token);
@@ -131,14 +138,21 @@ bool RecordProtocol::decodeRecordQueryRequest(
 bool RecordProtocol::encodeRecordQueryResponse(
     ErrorCode errorCode, const std::vector<RecordInfo> &records,
     std::vector<uint8_t> &value) {
+  value.clear();
   if (records.size() > static_cast<std::size_t>(std::numeric_limits<uint16_t>::max())) {
     return false;
   }
+  std::size_t bodySize = 6U;  // errorCode:uint32 + count:uint16
+  if (!canAppend(0U, bodySize)) return false;
   for (std::vector<RecordInfo>::const_iterator it = records.begin();
        it != records.end(); ++it) {
     if (!isEncodable(*it)) return false;
+    const std::size_t itemSize = 16U + 2U + it->filePath.size()
+        + 2U + it->startTime.size() + 2U + it->endTime.size();
+    if (!canAppend(bodySize, itemSize)) return false;
+    bodySize += itemSize;
   }
-  value.clear();
+  value.reserve(bodySize);
   appendUint32BE(value, static_cast<uint32_t>(static_cast<int32_t>(errorCode)));
   appendUint16BE(value, static_cast<uint16_t>(records.size()));
   for (std::vector<RecordInfo>::const_iterator it = records.begin();
@@ -156,6 +170,7 @@ bool RecordProtocol::encodeRecordQueryResponse(
 bool RecordProtocol::decodeRecordQueryResponse(
     const std::vector<uint8_t> &value, ErrorCode &errorCode,
     std::vector<RecordInfo> &records) {
+  if (value.size() > static_cast<std::size_t>(MAX_TLV_BODY_SIZE)) return false;
   std::size_t position = 0U;
   uint32_t rawCode = 0U;
   uint16_t count = 0U;

@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
     smart_home::UserService userService(mysql);
     smart_home::AuthHandler authHandler(userService);
     smart_home::ResourceHandler resourceHandler(mysql);
-    smart_home::PtzHandler ptzHandler(cfg.cameraSecret());
+    smart_home::PtzHandler ptzHandler(cfg.cameraSecret(), cfg.ptzAllowedHosts());
     smart_home::RecordService recordService(mysql);
 
     // ---- 第 5 步：创建 Reactor 并启动事件循环 ----

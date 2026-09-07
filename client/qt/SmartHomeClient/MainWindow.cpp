@@ -207,6 +207,18 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::requestRecordsForDevice);
     connect(m_dashboard, &MonitoringDashboard::requestPlayback,
             this, &MainWindow::handlePlaybackRequest);
+    connect(m_dashboard, &MonitoringDashboard::requestRecordStart,
+            this, &MainWindow::handleRecordStart);
+    connect(m_dashboard, &MonitoringDashboard::requestRecordStop,
+            this, &MainWindow::handleRecordStop);
+    connect(m_userService, &UserService::recordingStarted, this, [this]() {
+        m_dashboard->setRecordingActive(true);
+        m_dataStatus->setText(QStringLiteral("录像已开始"));
+    });
+    connect(m_userService, &UserService::recordingStopped, this, [this]() {
+        m_dashboard->setRecordingActive(false);
+        m_dataStatus->setText(QStringLiteral("录像已停止"));
+    });
 
     /* 录像回放：ffmpeg.exe 把本地 TS/MP4 解码成 JPEG -> 显示到通道 01。 */
     m_playbackPlayer = new FilePlaybackPlayer(this);
@@ -397,14 +409,18 @@ void MainWindow::showDataPage(quint64 userId)
     QString configError;
     const QList<CameraConfig> configs = loadCameraConfigs(configPath, &configError);
     m_dashboard->setCameraConfigs(configs);
-    m_dashboard->startPreview();
+    const bool useServerStream = qEnvironmentVariableIntValue("SMARTHOME_USE_SERVER_STREAM") != 0;
+    if (!useServerStream) {
+        /* 服务端转发模式由 ServerStreamPlayer 独占首路，避免直连和转发叠加绘制。 */
+        m_dashboard->startPreview();
+    }
 
     /*
      * 可选：SMARTHOME_USE_SERVER_STREAM=1 时走「服务器转发 → FFmpeg 解码」链路，
      * 用第一路启用摄像头的 RTSP 地址（或 SMARTHOME_STREAM_URL）请求服务器推流。
      * 默认不开启，保持原有 RtspPlayer 直连方案。
      */
-    if (qEnvironmentVariableIntValue("SMARTHOME_USE_SERVER_STREAM") != 0) {
+    if (useServerStream) {
         QString streamUrl = qEnvironmentVariable("SMARTHOME_STREAM_URL");
         if (streamUrl.isEmpty()) {
             for (const CameraConfig &config : configs) {
@@ -511,10 +527,40 @@ void MainWindow::showRequestError(const QString &reason)
     m_dataStatus->setText(reason);
 }
 
+void MainWindow::handleRecordStart(quint64 deviceId)
+{
+    if (deviceId == 0) {
+        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        return;
+    }
+    m_dataStatus->setText(QStringLiteral("正在启动录像…"));
+    m_userService->startRecording(deviceId);
+}
+
+void MainWindow::handleRecordStop()
+{
+    m_dataStatus->setText(QStringLiteral("正在停止录像…"));
+    m_userService->stopRecording();
+}
+
 MainWindow::~MainWindow()
 {
     /* 业务对象均拥有 MainWindow 父对象；ui 不是 QObject，需显式释放。 */
     /* 先停止工作台中的 FFmpeg 子进程，再释放 Qt 对象，避免残留视频进程。 */
+    /*
+     * 播放器属于 MainWindow 的子对象，而 Qt 销毁子对象时不保证
+     * m_dashboard 先于播放器保留。播放器 stop() 会发出 stateChanged，
+     * 若此时回调再次访问已销毁的工作台就会触发退出阶段崩溃；因此先断开
+     * 这些只服务于界面刷新的连接，再让 QObject 统一回收子对象。
+     */
+    if (m_playbackPlayer != nullptr) {
+        disconnect(m_playbackPlayer, nullptr, this, nullptr);
+        m_playbackPlayer->stop();
+    }
+    if (m_serverStreamPlayer != nullptr) {
+        disconnect(m_serverStreamPlayer, nullptr, this, nullptr);
+        m_serverStreamPlayer->stop();
+    }
     if (m_dashboard != nullptr) {
         m_dashboard->stopPreview();
     }

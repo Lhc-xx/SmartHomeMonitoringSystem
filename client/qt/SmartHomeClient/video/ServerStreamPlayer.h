@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <atomic>
 
 #include "common/media_reassembler.h"
 #include "frame.h"
@@ -58,6 +59,7 @@ private:
     std::deque<QByteArray> m_pendingFrames;
     bool m_stopRequested;
     bool m_decoderOpened;
+    std::atomic<bool> m_workerRunning;
     std::thread m_worker;
 };
 

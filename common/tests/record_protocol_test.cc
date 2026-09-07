@@ -1,4 +1,5 @@
 #include "protocol/RecordProtocol.h"
+#include "protocol/Protocol.h"
 
 #include <cassert>
 #include <cstdint>
@@ -58,6 +59,18 @@ int main() {
   records.assign(65536U, RecordInfo());
   assert(!RecordProtocol::encodeRecordQueryResponse(ErrorCode::SUCCESS, records,
                                                     response));
+
+  /* 条目数合法但 value 超过 1 MiB 时也必须在编码端拒绝，不能先分配巨量缓冲。 */
+  records.clear();
+  RecordInfo largeRecord;
+  largeRecord.filePath.assign(60000U, 'p');
+  largeRecord.startTime.assign(60000U, 's');
+  largeRecord.endTime.assign(60000U, 'e');
+  records.assign(20U, largeRecord);
+  assert(!RecordProtocol::encodeRecordQueryResponse(ErrorCode::SUCCESS, records,
+                                                    response));
+  response.assign(static_cast<std::size_t>(MAX_TLV_BODY_SIZE) + 1U, 0U);
+  assert(!RecordProtocol::decodeRecordQueryResponse(response, code, records));
   std::cout << "[PASS] record_protocol_test" << std::endl;
   return 0;
 }
