@@ -1,14 +1,27 @@
 # 智能家居监控系统
 
-这是一个面向小组协同开发的 C/S 智能家居监控系统基础工程骨架。
-当前阶段只提供：
+面向小组协同开发的 C/S 智能家居监控系统，MVP 主链路已闭环：
 
-- 服务器、Linux 客户端、Qt 客户端、公共模块的目录结构；
-- CMake 构建入口；
-- 一个最小可运行的 `Test` 测试类；
-- 脱敏配置示例、数据库脚本占位和协作文档入口。
+```text
+Qt 注册/登录 → Server + TLV + MySQL → 设备列表 → 一路实时流经服务器转发
+   → Qt FFmpeg 解码显示 → 云台经服务器转发 → 录像切片 + 元数据索引 + 回放
+```
 
-当前不包含真实网络、MySQL、FFmpeg、Qt 界面或摄像头业务代码。后续开发请在对应模块目录中增量实现，避免把业务代码全部堆在根目录。
+## 功能状态
+
+| 模块 | 状态 |
+| --- | --- |
+| 服务器 Reactor + ThreadPool + 配置 + 日志（A） | ✅ |
+| TLV 协议 + 半包/粘包/非法长度（B） | ✅ |
+| MySQL 用户/设备/录像表 + 注册/登录/设备/录像查询（B） | ✅ |
+| FFmpeg 拉流 + 服务器转发 + Qt 解码显示（C） | ✅ |
+| 云台经服务器转发（libcurl + token + JSON）（D） | ✅ |
+| 录像真 MPEG-TS 切片 + records 索引 + 回放（C） | ✅ |
+
+## 依赖
+
+- **服务器（Ubuntu 22.04）**：CMake ≥ 3.16、g++、log4cpp、libmysqlclient、OpenSSL、FFmpeg（libavformat/avcodec/avutil）、libcurl、cJSON。
+- **Qt 客户端（Windows，Qt 5.14.2）**：Qt5 Widgets/Network；真 FFmpeg 解码需 MinGW 的 FFmpeg 开发库（`-DWITH_QT_FFMPEG=ON`），否则用 MockDecoder。
 
 ## 目录结构
 
@@ -26,7 +39,7 @@ SmartHomeMonitoringSystem/
 │   ├── src/                       # 公共实现
 │   └── tests/                     # 公共模块测试
 ├── server/                        # C++11 服务器【A 主导】
-│   ├── conf/server.conf.example   # 脱敏配置模板（本地复制为 server.conf）
+│   ├── conf/server.conf         # 服务器配置
 │   ├── include/                   # 服务器头文件
 │   ├── src/                       # 网络、配置、日志、数据库、媒体等实现
 │   ├── log/                       # 运行日志（仅 .gitkeep）
@@ -40,12 +53,12 @@ SmartHomeMonitoringSystem/
 │   │   └── CMakeLists.txt
 │   └── qt/                        # Windows Qt 图形客户端【B/D 界面，C 解码，A 网络层】
 │       ├── include/  src/  forms/  resources/  tests/
-│       ├── conf/client.conf.example
+│       ├── conf/client.conf
 │       └── CMakeLists.txt         # 接入 Qt 后补充 find_package(Qt5 ...)
 ├── database/                      # SQL、迁移和种子数据【B】
 │   ├── schema/                    # 完整表结构 SQL
 │   ├── migrations/                # 按版本递增的结构变更 SQL
-│   └── seed/                      # 脱敏初始化数据
+│   └── seed/                      # 初始化数据
 ├── docs/                          # 协议、数据库、设计、开发和测试文档
 │   ├── protocol/                  # TLV 协议、消息类型、错误码、请求响应示例
 │   ├── database/                  # 表结构、索引、字段约束
@@ -73,6 +86,18 @@ ctest --test-dir build --output-on-failure
 ./build/server/tests/server_test
 ```
 
+运行服务器：
+
+```bash
+./build/server/smart_home_server
+```
+
+运行 Linux 客户端（另开一个终端）：
+
+```bash
+./build/client/linux/smart_home_linux_client
+```
+
 Windows 下生成器不同，运行目标可能位于 `build/Debug/` 或 `build/Release/`。
 
 ### 使用 Makefile
@@ -89,12 +114,17 @@ make -C server test
 - `dev-integration`：日常集成和联调分支。
 - `dev-lhc`、`dev-lqw`、`dev-pyj`、`dev-xgq`：个人功能分支。
 - 提交信息建议使用 `feat:`、`fix:`、`test:`、`docs:` 前缀。
-- 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件使用 `.example`。
 - 公共协议和数据结构先更新 `common/` 与 `docs/protocol/`，再分别实现服务器和客户端。
 
-## 当前最小验收标准
+## 验收状态（对照分工计划「六天最终验收」）
 
-- 能配置并生成 CMake 工程；
-- `Test` 类可被服务器测试程序调用；
-- 测试输出 `Test passed.` 并返回 0；
-- 三个主要模块均有清晰的后续代码放置位置。
+- [x] Server 可读取配置、写日志并稳定启动
+- [x] TLV 可处理正常包、半包、粘包和非法长度
+- [x] Qt 注册、登录和设备列表可用
+- [x] 至少一路实时流经过 Server 到 Qt 显示
+- [x] 云台八方向请求经过 Server 转发
+- [x] 录像文件、数据库索引和回放结果对应
+- [x] 服务器、Qt 客户端、Linux C 测试客户端有运行说明
+- [x] 有协议文档、数据库 SQL、测试报告和演示脚本
+
+详细测试记录见 [`docs/testing/README.md`](docs/testing/README.md)。

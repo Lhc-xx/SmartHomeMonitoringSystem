@@ -113,11 +113,9 @@ videos/
 
 
 # ----------------------------------------------------------------------------
-# 配置文件（含服务器 IP 等本机信息）
+# 配置文件
 # ----------------------------------------------------------------------------
-# 约定：提交 server.conf.example 作为模板，本地把 example 复制成 server.conf
-server/conf/server.conf
-*.local.conf
+# 服务器与摄像头配置直接提交真实值。
 
 
 # ----------------------------------------------------------------------------
@@ -145,7 +143,7 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 CTestTestfile.cmake
-Testing/
+/Testing/
 compile_commands.json
 CMakeUserPresets.json
 
@@ -156,6 +154,7 @@ CMakeUserPresets.json
 .idea/
 .cache/
 .clangd/
+.clangd
 
 # ----------------------------------------------------------------------------
 # third_party 第三方依赖（仅提交受控源码，忽略下载缓存与编译产物）
@@ -164,3 +163,9 @@ third_party/**/build/
 third_party/downloads/
 third_party/*.tar.*
 third_party/*.zip
+
+# 编译的测试程序
+thread_pool_test
+reactor_test
+smart_home_server
+smart_home_linux_client

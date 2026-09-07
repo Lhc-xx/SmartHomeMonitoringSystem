@@ -1,0 +1,66 @@
+/*
+ * B 成员设备与录像查询演示样例。
+ *
+ * 使用前先通过注册流程创建 demo_user。本文件包含真实摄像头 RTSP 地址和录像路径：
+ * stream_url 指向枪机/球机，录像路径位于服务器 video_path（./data/）下。
+ */
+USE smarthome;
+
+START TRANSACTION;
+
+/* 根据用户名取得归属 id；找不到用户时后续 INSERT ... SELECT 不会插入数据。 */
+SET @demo_user_id = (
+    SELECT id FROM users WHERE username = 'demo_user' LIMIT 1
+);
+
+/* 枪机 */
+INSERT INTO devices (
+    user_id, device_name, device_code, stream_url, device_type, status
+)
+SELECT
+    @demo_user_id, '枪机', 'gun-camera-001', 'rtsp://admin:admin@192.168.2.100/live/chn=0', 'gun', 1
+FROM DUAL
+WHERE @demo_user_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM devices
+      WHERE user_id = @demo_user_id AND device_code = 'gun-camera-001'
+  );
+
+/* 球机 */
+INSERT INTO devices (
+    user_id, device_name, device_code, stream_url, device_type, status
+)
+SELECT
+    @demo_user_id, '球机', 'dome-camera-001', 'rtsp://admin:admin@192.168.2.160/live/chn=0', 'dome', 1
+FROM DUAL
+WHERE @demo_user_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM devices
+      WHERE user_id = @demo_user_id AND device_code = 'dome-camera-001'
+  );
+
+SET @gun_device_id = (
+    SELECT id FROM devices
+    WHERE user_id = @demo_user_id AND device_code = 'gun-camera-001'
+    LIMIT 1
+);
+
+/* 录像元数据：文件路径位于服务器 video_path（./data/）下。 */
+INSERT INTO records (
+    device_id, file_path, start_time, end_time, file_size
+)
+SELECT
+    @gun_device_id,
+    './data/gun-camera-20260906-100000.ts',
+    '2026-09-06 10:00:00',
+    '2026-09-06 10:10:00',
+    0
+FROM DUAL
+WHERE @gun_device_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM records
+      WHERE device_id = @gun_device_id
+        AND file_path = './data/gun-camera-20260906-100000.ts'
+  );
+
+COMMIT;
