@@ -14,24 +14,27 @@
 
 namespace smart_home{
     Connection::Connection(int fd)
-    : _fd(fd)
-    , _lastActive(time(nullptr))
+    : _lastActive(time(nullptr))
+    , _fd(fd)
     {
 
     }
 
     Connection::~Connection(){
-        if(_fd >= 0){
-            close(_fd);
-        }
+        closeConnection();
     }
 
-    // 返回_fd
+    // 返回当前 fd；关闭竞态下返回 -1，调用方可安全放弃本次操作。
     int Connection::fd() const{
+        std::lock_guard<std::mutex> guard(_sendMutex);
         return _fd;
     }
 
     ssize_t Connection::readData(){
+        if (_fd < 0) {
+            errno = EBADF;
+            return -1;
+        }
         char buf[4096]; // 临时缓冲区 一次最多都4096个字节
         ssize_t n = ::read(_fd, buf, sizeof(buf)); // 从socket读
         if(n > 0){
@@ -50,8 +53,100 @@ namespace smart_home{
     }
 
     size_t Connection::sendData(const std::vector<uint8_t> &data){
+        if (data.empty()) {
+            return 0;
+        }
+
         std::lock_guard<std::mutex> guard(_sendMutex);
-        return ::send(_fd, data.data(), data.size(), 0);
+        if (_closed || _fd < 0) {
+            return 0;
+        }
+
+        /*
+         * 业务线程只做内存追加，不在这里调用阻塞/部分 send；否则一个慢客户端
+         * 会占住线程池工作线程，并可能让 TLV 响应和媒体帧在多个线程中交错。
+         */
+        _writeBuf.insert(_writeBuf.end(), data.begin(), data.end());
+        if (!_writeInterest) {
+            _writeInterest = true;
+            if (_writeInterestCallback) {
+                /* 回调约定只修改 Reactor 的 epoll 关注位，不回调 Connection。 */
+                _writeInterestCallback(true);
+            }
+        }
+        return data.size();
+    }
+
+    void Connection::setWriteInterestCallback(
+        const std::function<void(bool)> &callback) {
+        std::lock_guard<std::mutex> guard(_sendMutex);
+        _writeInterestCallback = callback;
+        if (!_closed && !_writeBuf.empty() && !_writeInterest) {
+            _writeInterest = true;
+            if (_writeInterestCallback) {
+                _writeInterestCallback(true);
+            }
+        }
+    }
+
+    Connection::FlushResult Connection::flushOutput() {
+        std::lock_guard<std::mutex> guard(_sendMutex);
+        if (_closed || _fd < 0) {
+            return FlushResult::Fatal;
+        }
+
+        while (_writeOffset < _writeBuf.size()) {
+            const size_t remaining = _writeBuf.size() - _writeOffset;
+            const ssize_t written = ::send(
+                _fd, _writeBuf.data() + _writeOffset, remaining, MSG_NOSIGNAL);
+            if (written > 0) {
+                _writeOffset += static_cast<size_t>(written);
+                continue;
+            }
+            if (written < 0 && errno == EINTR) {
+                continue;
+            }
+            if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                return FlushResult::Pending;
+            }
+
+            /* EPIPE/ECONNRESET 等不可恢复错误交由 Reactor 统一 close。 */
+            _closed = true;
+            _writeBuf.clear();
+            _writeOffset = 0;
+            _writeInterest = false;
+            return FlushResult::Fatal;
+        }
+
+        _writeBuf.clear();
+        _writeOffset = 0;
+        if (_writeInterest) {
+            _writeInterest = false;
+            if (_writeInterestCallback) {
+                _writeInterestCallback(false);
+            }
+        }
+        return FlushResult::Drained;
+    }
+
+    void Connection::closeConnection() {
+        std::lock_guard<std::mutex> guard(_sendMutex);
+        if (_closed && _fd < 0) {
+            return;
+        }
+        _closed = true;
+        _writeBuf.clear();
+        _writeOffset = 0;
+        _writeInterest = false;
+        if (_fd >= 0) {
+            ::close(_fd);
+            _fd = -1;
+        }
+    }
+
+    bool Connection::isClosed() const {
+        std::lock_guard<std::mutex> guard(_sendMutex);
+        return _closed;
     }
 
 

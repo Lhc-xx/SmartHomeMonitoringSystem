@@ -271,6 +271,24 @@ if(BUILD_TESTING)
     target_compile_features(UserServiceTest PRIVATE cxx_std_11)
     add_test(NAME UserServiceTest COMMAND UserServiceTest)
 
+    #[[服务器转发播放器测试：仅构造本地媒体包，验证解码失败与停止后的可重启行为。]]
+    add_executable(ServerStreamPlayerTest
+        tests/ServerStreamPlayerTest.cpp
+        video/ServerStreamPlayer.cpp
+        video/ServerStreamPlayer.h
+        ../src/mock_decoder.cc
+        ../../../common/src/media_packet.cc
+        ../../../common/src/media_reassembler.cc
+    )
+    target_include_directories(ServerStreamPlayerTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(ServerStreamPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Test)
+    target_compile_features(ServerStreamPlayerTest PRIVATE cxx_std_11)
+    add_test(NAME ServerStreamPlayerTest COMMAND ServerStreamPlayerTest)
+
     #[[
     主窗口测试只检查 B 数据页控件和交互状态；通过环境变量将连接目标
     固定为本机无服务端口，确保测试不会访问远程服务器或摄像头。

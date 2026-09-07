@@ -160,19 +160,49 @@ std::string formatDbTime(time_t t) {
                         continue;
                     }
                     auto conn = std::make_shared<Connection>(connFd);
+                    /*
+                     * sendData 由线程池/媒体线程调用时只入队；真正写 socket 由
+                     * Reactor 的 EPOLLOUT 分支完成。回调不触碰 Connection，避免
+                     * 在发送锁内产生反向调用或并发修改连接对象。
+                     */
+                    conn->setWriteInterestCallback(
+                        [this, connFd](bool enabled) {
+                            updateWriteInterest(connFd, enabled);
+                        });
                     _conn[connFd] = conn; // 连接信息存入map
                     struct epoll_event ev;
-                    ev.events = EPOLLIN; // 监视可读事件
+                    ev.events = EPOLLIN | EPOLLRDHUP; // 读 + 对端半关闭事件
                     ev.data.fd = connFd;
                     epoll_ctl(_epFd, EPOLL_CTL_ADD, connFd, &ev); // 注册进epoll
                     LOG_INFO(("new connection, fd = " + std::to_string(connFd)).c_str());
                 }else{
-                    // 已连接的fd  有读写/断开事件发生
+                    // 已连接的 fd 可能同时有读、写或断开事件。
                     auto it = _conn.find(fd);
                     if(it == _conn.end()){
                         continue; // 未找到连接 跳过
                     }
                     auto conn = it->second;
+
+                    const uint32_t eventMask = events[i].events;
+                    if ((eventMask & (EPOLLERR | EPOLLHUP)) != 0) {
+                        LOG_INFO(("connection error, fd = " + std::to_string(fd)).c_str());
+                        closeConnection(fd);
+                        continue;
+                    }
+
+                    if ((eventMask & EPOLLOUT) != 0) {
+                        const Connection::FlushResult result = conn->flushOutput();
+                        if (result == Connection::FlushResult::Fatal) {
+                            LOG_INFO(("connection write failed, fd = "
+                                      + std::to_string(fd)).c_str());
+                            closeConnection(fd);
+                            continue;
+                        }
+                    }
+
+                    if ((eventMask & (EPOLLIN | EPOLLRDHUP)) == 0) {
+                        continue;
+                    }
 
                     ssize_t n = conn->readData();
                     if(n > 0){ // 有数据
@@ -192,7 +222,7 @@ std::string formatDbTime(time_t t) {
                     }else{
                         // n < 0 出错
                         if(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR){
-                            // 无数据 忽略
+                            // 无数据，可能只是对端半关闭但内核缓冲已读空；下轮继续判断。
                         }else{
                             closeConnection(fd);
                         }
@@ -212,27 +242,91 @@ std::string formatDbTime(time_t t) {
     void Reactor::closeConnection(int fd){
         epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr);
 
-        // 停止并回收该连接的流会话 / 录像器
+        // 先摘出并停止流会话，避免退出阶段仍有线程向已关闭连接推帧。
+        std::shared_ptr<media::StreamSession> stream;
         {
             std::lock_guard<std::mutex> guard(_streamsMutex);
             auto it = _streams.find(fd);
             if(it != _streams.end()){
-                it->second->stop();
+                stream = it->second;
                 _streams.erase(it);
             }
             _streamUrls.erase(fd);
-            auto rit = _recorders.find(fd);
-            if(rit != _recorders.end()){
-                rit->second->stop();
-                _recorders.erase(rit);
-            }
-            _recordDeviceIds.erase(fd);
-            _recordStartTimes.erase(fd);
         }
+        if (stream) {
+            stream->stop();
+        }
+
+        /*
+         * 断线、空闲回收和写失败都必须走同一条录像收尾路径；否则 TS 文件
+         * 虽然已经由 ffmpeg 写出，却永远没有插入 records 表，客户端也就查不到。
+         */
+        finalizeRecording(fd);
 
         auto it = _conn.find(fd);
         if(it != _conn.end()){
+            it->second->closeConnection();
             _conn.erase(it);
+        }
+    }
+
+    bool Reactor::finalizeRecording(int fd){
+        std::shared_ptr<TsRecorder> recorder;
+        uint64_t deviceId = 0;
+        std::string startTime;
+        {
+            std::lock_guard<std::mutex> guard(_streamsMutex);
+            auto rit = _recorders.find(fd);
+            if (rit != _recorders.end()) {
+                recorder = rit->second;
+                _recorders.erase(rit);
+            }
+            auto dit = _recordDeviceIds.find(fd);
+            if (dit != _recordDeviceIds.end()) {
+                deviceId = dit->second;
+                _recordDeviceIds.erase(dit);
+            }
+            auto sit = _recordStartTimes.find(fd);
+            if (sit != _recordStartTimes.end()) {
+                startTime = sit->second;
+                _recordStartTimes.erase(sit);
+            }
+        }
+
+        if (!recorder) {
+            return false;
+        }
+
+        /* stop 可能等待 ffmpeg 写尾，绝不能在 _streamsMutex 内执行。 */
+        recorder->stop();
+        const std::vector<std::string> files = recorder->producedFiles();
+        const std::string endTime = formatDbTime(time(nullptr));
+        if (_recordService != nullptr) {
+            for (const std::string &file : files) {
+                _recordService->addRecord(deviceId, file, startTime, endTime);
+            }
+        }
+        LOG_INFO(("record finalized, fd=" + std::to_string(fd)
+                  + " segments=" + std::to_string(files.size())
+                  + " device=" + std::to_string(deviceId)).c_str());
+        return true;
+    }
+
+    void Reactor::updateWriteInterest(int fd, bool enabled){
+        if (_epFd < 0 || fd < 0) {
+            return;
+        }
+        struct epoll_event ev{};
+        ev.events = EPOLLIN | EPOLLRDHUP;
+        if (enabled) {
+            ev.events |= EPOLLOUT;
+        }
+        ev.data.fd = fd;
+        /* fd 可能刚被另一条断开路径删除；此时 MOD 失败是正常竞态。 */
+        if (epoll_ctl(_epFd, EPOLL_CTL_MOD, fd, &ev) < 0
+            && errno != ENOENT && errno != EBADF) {
+            LOG_WARN(("failed to update EPOLLOUT, fd=" + std::to_string(fd)
+                      + " errno=" + std::to_string(errno)).c_str());
         }
     }
 
@@ -392,21 +486,22 @@ std::string formatDbTime(time_t t) {
             case MessageType::STREAM_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_STOP_RESPONSE);
                 {
-                    std::lock_guard<std::mutex> guard(_streamsMutex);
-                    auto it = _streams.find(conn->fd());
-                    if (it != _streams.end()) {
-                        it->second->stop();
-                        _streams.erase(it);
+                    std::shared_ptr<media::StreamSession> stream;
+                    {
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        auto it = _streams.find(conn->fd());
+                        if (it != _streams.end()) {
+                            stream = it->second;
+                            _streams.erase(it);
+                        }
+                        _streamUrls.erase(conn->fd());
                     }
-                    _streamUrls.erase(conn->fd());
-                    auto rit = _recorders.find(conn->fd());
-                    if (rit != _recorders.end()) {
-                        rit->second->stop();
-                        _recorders.erase(rit);
+                    if (stream) {
+                        /* 解锁后停止拉流线程，避免阻塞其它连接的媒体状态。 */
+                        stream->stop();
                     }
-                    _recordDeviceIds.erase(conn->fd());
-                    _recordStartTimes.erase(conn->fd());
                 }
+                finalizeRecording(conn->fd());
                 break;
 
             case MessageType::RECORD_START_REQUEST:
@@ -455,47 +550,8 @@ std::string formatDbTime(time_t t) {
             case MessageType::RECORD_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
                 {
-                    std::shared_ptr<TsRecorder> recorder;
-                    {
-                        std::lock_guard<std::mutex> guard(_streamsMutex);
-                        auto it = _recorders.find(conn->fd());
-                        if (it != _recorders.end()) {
-                            recorder = it->second;
-                            _recorders.erase(it);
-                        }
-                    }
-                    if (!recorder) {
+                    if (!finalizeRecording(conn->fd())) {
                         errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
-                    } else {
-                        recorder->stop();
-                        const std::vector<std::string> files = recorder->producedFiles();
-
-                        uint64_t deviceId = 0;
-                        std::string startTime;
-                        {
-                            std::lock_guard<std::mutex> guard(_streamsMutex);
-                            auto dit = _recordDeviceIds.find(conn->fd());
-                            if (dit != _recordDeviceIds.end()) {
-                                deviceId = dit->second;
-                                _recordDeviceIds.erase(dit);
-                            }
-                            auto sit = _recordStartTimes.find(conn->fd());
-                            if (sit != _recordStartTimes.end()) {
-                                startTime = sit->second;
-                                _recordStartTimes.erase(sit);
-                            }
-                        }
-                        const std::string endTime = formatDbTime(time(nullptr));
-
-                        // 每个 TS 片段写一条录像元数据索引（录像文件、数据库索引对应）
-                        if (_recordService != nullptr) {
-                            for (const std::string &f : files) {
-                                _recordService->addRecord(deviceId, f, startTime, endTime);
-                            }
-                        }
-                        LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
-                                  + " segments=" + std::to_string(files.size())
-                                  + " device=" + std::to_string(deviceId)).c_str());
                     }
                 }
                 break;

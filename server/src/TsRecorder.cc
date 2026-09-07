@@ -7,6 +7,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -50,7 +51,7 @@ TsRecorder::~TsRecorder() {
 bool TsRecorder::start(const std::string &url, const std::string &outputDir, int segmentSec) {
     stop();  // 已在录制则先停
 
-    if (url.empty() || outputDir.empty()) {
+    if (url.empty() || outputDir.empty() || segmentSec <= 0 || segmentSec > 3600) {
         return false;
     }
     if (!ensureDirectory(outputDir)) {
@@ -61,11 +62,33 @@ bool TsRecorder::start(const std::string &url, const std::string &outputDir, int
     const std::string pattern = outputDir + "/seg_%05d.ts";
     const std::string segSec = std::to_string(segmentSec);
 
+    /*
+     * 通过 close-on-exec 管道确认 execvp 是否真正成功：fork 成功并不等于
+     * ffmpeg 已启动，若 PATH 配置错误，父进程必须收到明确失败而不能把
+     * “录像已开始”返回给上层。
+     */
+    int execPipe[2] = {-1, -1};
+    if (pipe(execPipe) != 0) {
+        return false;
+    }
+    const int readFlags = fcntl(execPipe[0], F_GETFD, 0);
+    const int writeFlags = fcntl(execPipe[1], F_GETFD, 0);
+    if (readFlags < 0 || writeFlags < 0
+        || fcntl(execPipe[0], F_SETFD, readFlags | FD_CLOEXEC) != 0
+        || fcntl(execPipe[1], F_SETFD, writeFlags | FD_CLOEXEC) != 0) {
+        close(execPipe[0]);
+        close(execPipe[1]);
+        return false;
+    }
+
     const pid_t pid = fork();
     if (pid < 0) {
+        close(execPipe[0]);
+        close(execPipe[1]);
         return false;
     }
     if (pid == 0) {
+        close(execPipe[0]);
         // 子进程：ffmpeg 输出丢弃到 /dev/null，避免污染服务器日志
         freopen("/dev/null", "w", stdout);
         freopen("/dev/null", "w", stderr);
@@ -97,7 +120,24 @@ bool TsRecorder::start(const std::string &url, const std::string &outputDir, int
         }
         argv.push_back(nullptr);
         execvp("ffmpeg", argv.data());
+        const int execError = errno;
+        /* 管道仍然打开说明 exec 失败；父进程据此把本次 start 判为失败。 */
+        (void)!write(execPipe[1], &execError, sizeof(execError));
         _exit(127);  // exec 失败
+    }
+
+    close(execPipe[1]);
+    int execError = 0;
+    ssize_t statusBytes = 0;
+    do {
+        statusBytes = read(execPipe[0], &execError, sizeof(execError));
+    } while (statusBytes < 0 && errno == EINTR);
+    close(execPipe[0]);
+    if (statusBytes > 0) {
+        /* exec 失败的子进程必然很快退出；回收它避免留下僵尸进程。 */
+        waitpid(pid, nullptr, 0);
+        _outputDir.clear();
+        return false;
     }
 
     _pid = pid;

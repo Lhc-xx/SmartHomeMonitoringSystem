@@ -123,6 +123,11 @@ namespace smart_home{
         // 迅思维设备接口的默认密钥，脱敏；可按本地环境在 server.conf 覆盖
         return getString("camera_secret","f6fdffe48c908deb0f4c3bd36c032e72");
     }
+
+    std::string Config::ptzAllowedHosts() const{
+        /* 默认空白即拒绝，部署者需在不提交敏感配置的本地 server.conf 中填写。 */
+        return getString("ptz_allowed_hosts", "");
+    }
     
     
 } // namespace smart_home

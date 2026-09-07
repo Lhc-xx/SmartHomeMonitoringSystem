@@ -47,6 +47,10 @@ namespace smart_home {
 
         //摄像头 HTTP 接口 token 签名密钥（迅思维默认 secret，可被 server.conf 覆盖）
         std::string cameraSecret() const;
+
+        // PTZ 允许访问的摄像头 IPv4 白名单，多个地址用逗号分隔。
+        // 为空时默认拒绝 PTZ 请求，避免把服务端变成任意 HTTP 内网代理。
+        std::string ptzAllowedHosts() const;
     private:
         // 存数据
         //key ----> value

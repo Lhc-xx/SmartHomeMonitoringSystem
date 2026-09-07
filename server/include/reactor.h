@@ -35,6 +35,8 @@ namespace smart_home {
 
     private:
         void closeConnection(int fd); // 从epoll删除 清理断开连接
+        void updateWriteInterest(int fd, bool enabled); // 切换连接的 EPOLLOUT 关注位
+        bool finalizeRecording(int fd); // 停止录像、落盘文件并写入 records 元数据
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
         ResourceHandler* _resourceHandler = nullptr; // 资源处理器，由 main 注入
         PtzHandler* _ptzHandler = nullptr;    // 云台转发处理器，由 main 注入
