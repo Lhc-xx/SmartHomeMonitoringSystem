@@ -321,6 +321,15 @@ void MonitoringDashboard::setCameraConfigs(const QList<CameraConfig> &configs)
     }
 }
 
+void MonitoringDashboard::setControlForwarder(
+    const std::function<void(const QString &, const QString &, const QString &)> &forwarder)
+{
+    /* 注入后云台控制改经服务器转发，能力探测仍直连摄像头只读接口。 */
+    if (m_ptzClient != nullptr) {
+        m_ptzClient->setControlForwarder(forwarder);
+    }
+}
+
 void MonitoringDashboard::setDevices(const QList<ClientProtocol::DeviceInfo> &devices)
 {
     m_devices = devices;

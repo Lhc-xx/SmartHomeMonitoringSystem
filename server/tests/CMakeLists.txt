@@ -142,11 +142,15 @@ add_executable(reactor_test
     ../src/DeviceService.cc
     ../src/RecordService.cc
     ../src/ResourceHandler.cc
+    ../src/PtzHandler.cc
+    ../src/PtzHttpClient.cc
 )
 target_link_libraries(reactor_test PRIVATE
-    smart_home_common ${MYSQLCLIENT_LIBRARY} OpenSSL::Crypto log4cpp pthread)
+    smart_home_common ${MYSQLCLIENT_LIBRARY} OpenSSL::Crypto log4cpp pthread
+    ${CURL_LIBRARY} ${CJSON_LIBRARY})
 target_compile_features(reactor_test PRIVATE cxx_std_11)
-target_include_directories(reactor_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
+target_include_directories(reactor_test PRIVATE
+    ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR} ${CURL_INCLUDE_DIR} ${CJSON_INCLUDE_DIR})
 add_test(NAME reactor_test COMMAND reactor_test)
 
 #[[流会话测试（角色 C）：Mock 源 + 统一版 StreamSession，无 FFmpeg 依赖，自动加入 CTest。]]

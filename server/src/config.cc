@@ -118,6 +118,11 @@ namespace smart_home{
     std::string Config::mysqlDatabase() const{
         return getString("mysql_database","smarthome");
     }
+
+    std::string Config::cameraSecret() const{
+        // 迅思维设备接口的默认密钥，脱敏；可按本地环境在 server.conf 覆盖
+        return getString("camera_secret","f6fdffe48c908deb0f4c3bd36c032e72");
+    }
     
     
 } // namespace smart_home

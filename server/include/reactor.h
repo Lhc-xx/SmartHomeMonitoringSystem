@@ -13,6 +13,7 @@
 
 namespace smart_home {
     class AuthHandler;
+    class PtzHandler;
     class ResourceHandler;
     namespace media { class StreamSession; } // 流会话存储（媒体转发核心）
     class Reactor{
@@ -24,6 +25,7 @@ namespace smart_home {
         void stop(); //退出事件循环
         void setAuthHandler(AuthHandler* handler);
         void setResourceHandler(ResourceHandler* handler);
+        void setPtzHandler(PtzHandler* handler); // 云台转发处理器，由 main 注入
         void setSessionTimeout(int seconds); // 登录会话超时（秒），<=0 永不超时
         void setVideoPath(const std::string &path); // 录像文件保存目录
         void setIdleTimeout(int seconds); // 连接空闲回收超时（秒），<=0 永不回收
@@ -32,6 +34,7 @@ namespace smart_home {
         void closeConnection(int fd); // 从epoll删除 清理断开连接
         AuthHandler* _authHandler = nullptr;   // 认证处理器，由 main 注入
         ResourceHandler* _resourceHandler = nullptr; // 资源处理器，由 main 注入
+        PtzHandler* _ptzHandler = nullptr;    // 云台转发处理器，由 main 注入
         std::map<int, std::shared_ptr<media::StreamSession>> _streams;   // fd -> 流会话
         std::mutex _streamsMutex;                                 // 保护 _streams
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);

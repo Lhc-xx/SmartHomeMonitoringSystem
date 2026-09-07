@@ -132,6 +132,16 @@ void UserService::stopStream()
                  requestId, QStringLiteral("停流"));
 }
 
+void UserService::sendPtzControl(const QString &cameraUrl, const QString &direction,
+                                 const QString &move)
+{
+    if (!canStartAuthenticatedRequest(QStringLiteral("云台控制"))) return;
+    const quint32 requestId = nextRequestId();
+    beginRequest(PendingRequest::PtzControl,
+                 ClientProtocol::encodePtzControlRequest(cameraUrl, direction, move, requestId),
+                 requestId, QStringLiteral("云台控制"));
+}
+
 void UserService::onDataReceived(const QByteArray &data)
 {
     m_receiveBuffer.append(data);
@@ -243,6 +253,16 @@ void UserService::onDataReceived(const QByteArray &data)
                 emit streamStopped();
             } else {
                 failPending(errorCodeMessage(response.errorCode, QStringLiteral("停流")));
+            }
+        } else if (m_pending == PendingRequest::PtzControl) {
+            ClientProtocol::ControlResponse response;
+            if (!ClientProtocol::decodePtzControlResponse(packet.raw, response)) {
+                failPending(QStringLiteral("云台控制响应协议格式错误。"));
+            } else if (response.errorCode == ErrorCode::SUCCESS) {
+                m_pending = PendingRequest::None;
+                m_pendingRequestId = 0;
+            } else {
+                failPending(errorCodeMessage(response.errorCode, QStringLiteral("云台控制")));
             }
         }
     }

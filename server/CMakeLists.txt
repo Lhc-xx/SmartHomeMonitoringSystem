@@ -30,6 +30,17 @@ if(WITH_FFMPEG)
     endif()
 endif()
 
+# ============================================================
+# libcurl + cJSON（角色 D：云台 HTTP 转发 + JSON 解析）
+# ============================================================
+find_path(CURL_INCLUDE_DIR curl/curl.h)
+find_library(CURL_LIBRARY curl)
+find_path(CJSON_INCLUDE_DIR cjson/cJSON.h)
+find_library(CJSON_LIBRARY cjson)
+if(NOT CURL_INCLUDE_DIR OR NOT CURL_LIBRARY OR NOT CJSON_INCLUDE_DIR OR NOT CJSON_LIBRARY)
+    message(FATAL_ERROR "libcurl/cJSON not found (needed by PtzHandler)")
+endif()
+
 add_executable(smart_home_server
     src/main.cc # 主程序入口
     src/logger.cc # 日志模块
@@ -52,6 +63,12 @@ add_executable(smart_home_server
     src/DeviceService.cc
     src/RecordService.cc
     src/ResourceHandler.cc
+
+    # --------------------------------------------------------
+    # D：云台 HTTP 转发（libcurl + cJSON + token）
+    # --------------------------------------------------------
+    src/PtzHttpClient.cc
+    src/PtzHandler.cc
 )
 
 # ============================================================
@@ -123,6 +140,10 @@ target_link_libraries(
 
     # FFmpeg 真拉流源（角色 C，检测到时非空）
     ${FFMPEG_LIBRARIES}
+
+    # 云台 HTTP 转发（角色 D）
+    ${CURL_LIBRARY}
+    ${CJSON_LIBRARY}
 )
 
 
@@ -155,6 +176,8 @@ target_include_directories(
     PRIVATE
 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CURL_INCLUDE_DIR}
+    ${CJSON_INCLUDE_DIR}
 )
 
 # FFmpeg 头文件目录 + 编译宏（检测到时生效）

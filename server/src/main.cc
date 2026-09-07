@@ -25,6 +25,7 @@
 #include "UserService.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
+#include "PtzHandler.h"
 
 // 确保日志文件的父目录存在。
 static void ensureLogDir(const std::string &log_file) {
@@ -109,12 +110,14 @@ int main(int argc, char *argv[]) {
     smart_home::UserService userService(mysql);
     smart_home::AuthHandler authHandler(userService);
     smart_home::ResourceHandler resourceHandler(mysql);
+    smart_home::PtzHandler ptzHandler(cfg.cameraSecret());
 
     // ---- 第 5 步：创建 Reactor 并启动事件循环 ----
     // 线程数 队列容量 读取配置
     smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
     reactor.setAuthHandler(&authHandler);
     reactor.setResourceHandler(&resourceHandler);
+    reactor.setPtzHandler(&ptzHandler);
     reactor.setSessionTimeout(cfg.sessionTimeout());
     reactor.setVideoPath(cfg.videoPath());
     if (!reactor.init(cfg.ip(), cfg.port())) {

@@ -38,7 +38,11 @@ enum class MessageType : uint16_t{
     RECORD_START_RESPONSE = 0x1602,
 
     RECORD_STOP_REQUEST = 0x1701,
-    RECORD_STOP_RESPONSE = 0x1702
+    RECORD_STOP_RESPONSE = 0x1702,
+
+    //云台控制（角色 D：服务器经 libcurl+token 转发到摄像头）
+    PTZ_CONTROL_REQUEST = 0x1801,
+    PTZ_CONTROL_RESPONSE = 0x1802
 };
 
 #endif

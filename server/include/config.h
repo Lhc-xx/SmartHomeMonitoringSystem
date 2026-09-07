@@ -44,6 +44,9 @@ namespace smart_home {
         //项目使用的 数据库名称
         //默认 smarthome
         std::string mysqlDatabase() const;
+
+        //摄像头 HTTP 接口 token 签名密钥（迅思维默认 secret，可被 server.conf 覆盖）
+        std::string cameraSecret() const;
     private:
         // 存数据
         //key ----> value

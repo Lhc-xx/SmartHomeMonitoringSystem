@@ -4,6 +4,8 @@
 #include <QList>
 #include <QWidget>
 
+#include <functional>
+
 #include "video/CameraConfig.h"
 #include "network/PtzClient.h"
 #include "protocol/ClientProtocol.h"
@@ -37,6 +39,8 @@ public:
 
     void setCameraConfigs(const QList<CameraConfig> &configs);
     void setDevices(const QList<ClientProtocol::DeviceInfo> &devices);
+    /* 注入云台转发回调（参数：cameraUrl, direction, move），用于经服务器转发。 */
+    void setControlForwarder(const std::function<void(const QString &, const QString &, const QString &)> &forwarder);
     void startPreview();
     void stopPreview();
 

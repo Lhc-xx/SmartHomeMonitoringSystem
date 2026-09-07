@@ -8,6 +8,7 @@
 #include "session_policy.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
+#include "PtzHandler.h"
 #include "media/stream_session.h"
 #include "media/mock_media_source.h"
 #ifdef SMARTHOME_WITH_FFMPEG
@@ -241,6 +242,10 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
         _resourceHandler = handler;
     }
 
+    void Reactor::setPtzHandler(PtzHandler* handler){
+        _ptzHandler = handler;
+    }
+
     void Reactor::setSessionTimeout(int seconds){
         _sessionTimeout = seconds;
     }
@@ -316,6 +321,15 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
             type == MessageType::RECORD_QUERY_REQUEST) {
             if (_resourceHandler) {
                 TlvMessage resp = _resourceHandler->handle(msg);
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 云台控制：交给 D 的 PtzHandler（内部经 libcurl+token 转发到摄像头）。
+        if (type == MessageType::PTZ_CONTROL_REQUEST) {
+            if (_ptzHandler) {
+                TlvMessage resp = _ptzHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
             }
             return;

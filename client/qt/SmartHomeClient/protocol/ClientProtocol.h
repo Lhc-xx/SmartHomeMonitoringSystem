@@ -23,7 +23,8 @@ public:
         StreamStartRequest = 0x1401, StreamStartResponseType = 0x1402,
         StreamStopRequest = 0x1501, StreamStopResponseType = 0x1502,
         RecordStartRequest = 0x1601, RecordStartResponseType = 0x1602,
-        RecordStopRequest = 0x1701, RecordStopResponseType = 0x1702
+        RecordStopRequest = 0x1701, RecordStopResponseType = 0x1702,
+        PtzControlRequest = 0x1801, PtzControlResponseType = 0x1802
     };
 
     /* 通用拆包状态：Incomplete 保留半包，Invalid 会安全清空无法恢复的缓冲。 */
@@ -70,6 +71,12 @@ public:
     static QByteArray encodeRecordStartRequest(quint64 deviceId, quint32 requestId = 0);
     static QByteArray encodeRecordStopRequest(quint32 requestId = 0);
 
+    /* 云台控制：payload = cameraUrl(String) + direction(String) + move(String)。 */
+    static QByteArray encodePtzControlRequest(const QString &cameraUrl,
+                                              const QString &direction,
+                                              const QString &move,
+                                              quint32 requestId = 0);
+
     /* 从 TCP 缓冲取得一条完整 TLV；恶意超长 length 会安全失败而不会越界读取。 */
     static PacketState tryTakePacket(QByteArray &receiveBuffer, Packet &packet,
                                      ErrorCode &errorCode);
@@ -83,6 +90,7 @@ public:
     static bool decodeStreamStopResponse(const QByteArray &packet, ControlResponse &response);
     static bool decodeRecordStartResponse(const QByteArray &packet, ControlResponse &response);
     static bool decodeRecordStopResponse(const QByteArray &packet, ControlResponse &response);
+    static bool decodePtzControlResponse(const QByteArray &packet, ControlResponse &response);
 
 private:
     /* 在写入长度前统一校验 UTF-8/token 是否可由 uint16 表示。 */

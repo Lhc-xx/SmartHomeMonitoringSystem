@@ -77,6 +77,8 @@ bool isKnownType(quint16 type)
     case ClientProtocol::RecordStartResponseType:
     case ClientProtocol::RecordStopRequest:
     case ClientProtocol::RecordStopResponseType:
+    case ClientProtocol::PtzControlRequest:
+    case ClientProtocol::PtzControlResponseType:
         return true;
     default:
         return false;
@@ -212,6 +214,20 @@ QByteArray ClientProtocol::encodeRecordStartRequest(quint64 deviceId, quint32 re
 QByteArray ClientProtocol::encodeRecordStopRequest(quint32 requestId)
 {
     return encodePacket(RecordStopRequest, requestId, QByteArray());
+}
+
+QByteArray ClientProtocol::encodePtzControlRequest(const QString &cameraUrl,
+                                                   const QString &direction,
+                                                   const QString &move,
+                                                   quint32 requestId)
+{
+    QByteArray body;
+    if (!appendLengthString(body, cameraUrl.toUtf8())
+        || !appendLengthString(body, direction.toUtf8())
+        || !appendLengthString(body, move.toUtf8())) {
+        return QByteArray();
+    }
+    return encodePacket(PtzControlRequest, requestId, body);
 }
 
 ClientProtocol::PacketState ClientProtocol::tryTakePacket(QByteArray &receiveBuffer,
@@ -439,6 +455,22 @@ bool ClientProtocol::decodeRecordStopResponse(const QByteArray &packet, ControlR
 {
     Packet decoded;
     if (!decodePacket(packet, decoded) || decoded.type != RecordStopResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodePtzControlResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != PtzControlResponseType) {
         return false;
     }
     int offset = 0;

@@ -29,6 +29,9 @@ public:
     void startStream(const QString &streamUrl);
     void stopStream();
 
+    /* 云台控制经服务器转发：cameraUrl 为球机 Web 根地址，direction/move 见协议。 */
+    void sendPtzControl(const QString &cameraUrl, const QString &direction, const QString &move);
+
     /* 设置单次请求的等待超时（毫秒），超时后通过对应失败信号上报。 */
     void setRequestTimeout(int ms);
 
@@ -56,7 +59,7 @@ private slots:
 
 private:
     /* 串行请求状态确保新操作不会覆盖正在等待的 requestId 和响应缓冲。 */
-    enum class PendingRequest { None, Register, Login, DeviceList, RecordQuery, StreamStart, StreamStop };
+    enum class PendingRequest { None, Register, Login, DeviceList, RecordQuery, StreamStart, StreamStop, PtzControl };
 
     bool beginRequest(PendingRequest type, const QByteArray &packet, quint32 requestId,
                       const QString &actionName);
