@@ -18,6 +18,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     VLCKits.cpp \
     main.cpp \
+<<<<<<< HEAD
     widget.cpp \
     widget2.cpp
 
@@ -29,6 +30,16 @@ HEADERS += \
 FORMS += \
     widget.ui \
     widget2.ui
+=======
+    widget.cpp
+
+HEADERS += \
+    VLCKits.h \
+    widget.h
+
+FORMS += \
+    widget.ui
+>>>>>>> dev-xgq
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

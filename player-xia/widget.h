@@ -20,8 +20,11 @@ public:
     Widget(QWidget *parent = nullptr);
     ~Widget();
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> dev-xgq
 private slots:
     void on_btnOpen_clicked();
 
