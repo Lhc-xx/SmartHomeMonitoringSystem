@@ -44,6 +44,9 @@ int main() {
     }
     expect(written == 100, "write 100 packets");
 
+    // 先 stop，把最后一段（90~99）也收尾进 segments，再检查切片数
+    seg.stop();
+
     // 3) 切片数：关键帧 0/30/60/90 触发切段 → 共 4 段（0-29 / 30-59 / 60-89 / 90-99）
     std::vector<smart_home::media::SegmentInfo> segs = seg.segments();
     expect(segs.size() == 4, "4 segments generated");
@@ -70,8 +73,7 @@ int main() {
         expect(filesOk, "all segment files exist and are non-empty");
     }
 
-    // 6) 停止
-    seg.stop();
+    // 6) 已停止（前面已调用 stop）
     expect(!seg.isRecording(), "isRecording == false after stop");
 
     std::cout << "=== TsSegmenter test end ===" << std::endl;
