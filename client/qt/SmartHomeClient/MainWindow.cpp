@@ -20,6 +20,7 @@
 #include "ui/MonitoringDashboard.h"
 #include "ui_MainWindow.h"
 #include "video/CameraConfig.h"
+#include "video/FilePlaybackPlayer.h"
 #include "video/ServerStreamPlayer.h"
 #include "video/VideoWidget.h"
 
@@ -52,6 +53,8 @@ MainWindow::MainWindow(QWidget *parent)
     , m_loginWidget(nullptr)
     , m_dashboard(nullptr)
     , m_serverStreamPlayer(nullptr)
+    , m_playbackPlayer(nullptr)
+    , m_pendingPlayback(false)
     , m_dataPage(nullptr)
     , m_deviceModel(nullptr)
     , m_recordModel(nullptr)
@@ -202,6 +205,34 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::requestDevices);
     connect(m_dashboard, &MonitoringDashboard::requestRecordList,
             this, &MainWindow::requestRecordsForDevice);
+    connect(m_dashboard, &MonitoringDashboard::requestPlayback,
+            this, &MainWindow::handlePlaybackRequest);
+
+    /* 录像回放：ffmpeg.exe 把本地 TS/MP4 解码成 JPEG -> 显示到通道 01。 */
+    m_playbackPlayer = new FilePlaybackPlayer(this);
+    connect(m_playbackPlayer, &FilePlaybackPlayer::frameReady, this,
+            [this](const QImage &frame) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setFrame(frame);
+        }
+    });
+    connect(m_playbackPlayer, &FilePlaybackPlayer::stateChanged, this,
+            [this](const QString &state) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(state);
+        }
+        m_dataStatus->setText(state);
+    });
+    connect(m_playbackPlayer, &FilePlaybackPlayer::errorOccurred, this,
+            [this](const QString &reason) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(QStringLiteral("异常"), reason);
+        }
+        m_dataStatus->setText(reason);
+    });
 
     /*
      * 服务器转发后端（与 RtspPlayer 直连并存，默认不启动）：
@@ -450,8 +481,29 @@ void MainWindow::updateDevices(const QList<ClientProtocol::DeviceInfo> &devices)
 
 void MainWindow::updateRecords(const QList<ClientProtocol::RecordInfo> &records)
 {
+    m_records = records;
     m_recordModel->setRecords(records);
     m_dataStatus->setText(QStringLiteral("已收到 %1 条录像元数据。").arg(records.size()));
+
+    /* 回放请求先触发一次查询，拿到结果后播放最近一条录像。 */
+    if (m_pendingPlayback) {
+        m_pendingPlayback = false;
+        if (!m_records.isEmpty() && m_playbackPlayer != nullptr) {
+            m_playbackPlayer->play(m_records.first().filePath);
+        } else {
+            m_dataStatus->setText(QStringLiteral("没有可回放的录像。"));
+        }
+    }
+}
+
+void MainWindow::handlePlaybackRequest(quint64 deviceId)
+{
+    if (deviceId == 0) {
+        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        return;
+    }
+    m_pendingPlayback = true;
+    requestRecordsForDevice(deviceId);
 }
 
 void MainWindow::showRequestError(const QString &reason)

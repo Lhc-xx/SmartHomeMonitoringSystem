@@ -95,9 +95,11 @@ void MonitoringDashboard::buildUi()
     QPushButton *previewButton = makeNavButton(QStringLiteral("实时预览"), header);
     previewButton->setObjectName(QStringLiteral("activeNavButton"));
     QPushButton *recordButton = makeNavButton(QStringLiteral("录像查询"), header);
+    QPushButton *playbackButton = makeNavButton(QStringLiteral("回放"), header);
     QPushButton *deviceButton = makeNavButton(QStringLiteral("设备数据"), header);
     headerLayout->addWidget(previewButton);
     headerLayout->addWidget(recordButton);
+    headerLayout->addWidget(playbackButton);
     headerLayout->addWidget(deviceButton);
     root->addWidget(header);
 
@@ -198,6 +200,10 @@ void MonitoringDashboard::buildUi()
          */
         emit requestRecordList(selectedServerDeviceId());
         appendEvent(QStringLiteral("录像查询入口已就绪"));
+    });
+    connect(playbackButton, &QPushButton::clicked, this, [this]() {
+        emit requestPlayback(selectedServerDeviceId());
+        appendEvent(QStringLiteral("正在请求录像回放"));
     });
     connect(deviceButton, &QPushButton::clicked, this, [this]() {
         emit requestDeviceList();

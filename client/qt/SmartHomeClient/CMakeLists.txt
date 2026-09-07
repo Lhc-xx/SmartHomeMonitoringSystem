@@ -78,6 +78,8 @@ add_executable(SmartHomeClient
     video/VideoWidget.h
     video/ServerStreamPlayer.cpp
     video/ServerStreamPlayer.h
+    video/FilePlaybackPlayer.cpp
+    video/FilePlaybackPlayer.h
     ../src/mock_decoder.cc
     ${FFMPEG_DECODER_SOURCES}
     ../../../common/src/media_packet.cc
@@ -169,6 +171,20 @@ if(BUILD_TESTING)
     target_link_libraries(RtspPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Network Qt5::Test)
     target_compile_features(RtspPlayerTest PRIVATE cxx_std_11)
     add_test(NAME RtspPlayerTest COMMAND RtspPlayerTest)
+
+    add_executable(FilePlaybackPlayerTest
+        tests/FilePlaybackPlayerTest.cpp
+        video/FilePlaybackPlayer.cpp
+        video/FilePlaybackPlayer.h
+        video/RtspPlayer.cpp
+        video/RtspPlayer.h
+    )
+    target_include_directories(FilePlaybackPlayerTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(FilePlaybackPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Network Qt5::Test)
+    target_compile_features(FilePlaybackPlayerTest PRIVATE cxx_std_11)
+    add_test(NAME FilePlaybackPlayerTest COMMAND FilePlaybackPlayerTest)
 
     add_executable(VideoWidgetTest
         tests/VideoWidgetTest.cpp

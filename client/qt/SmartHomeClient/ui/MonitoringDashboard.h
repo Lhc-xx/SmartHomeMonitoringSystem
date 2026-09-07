@@ -53,6 +53,8 @@ signals:
     void requestDeviceList();
     /* 工作台查询必须携带右侧服务端设备树当前选中的设备 ID。 */
     void requestRecordList(quint64 deviceId);
+    /* 回放所选设备最近录像。 */
+    void requestPlayback(quint64 deviceId);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
