@@ -20,6 +20,29 @@
 #include "ui/MonitoringDashboard.h"
 #include "ui_MainWindow.h"
 #include "video/CameraConfig.h"
+#include "video/ServerStreamPlayer.h"
+#include "video/VideoWidget.h"
+
+#include <memory>
+
+#ifdef SMART_HOME_WITH_FFMPEG
+#include "ffmpeg_decoder.h"
+#else
+#include "mock_decoder.h"
+#endif
+
+namespace {
+
+std::unique_ptr<smart_home::client::IDecoder> makeStreamDecoder()
+{
+#ifdef SMART_HOME_WITH_FFMPEG
+    return std::unique_ptr<smart_home::client::IDecoder>(new smart_home::client::FFmpegDecoder());
+#else
+    return std::unique_ptr<smart_home::client::IDecoder>(new smart_home::client::MockDecoder());
+#endif
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -28,6 +51,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_userService(nullptr)
     , m_loginWidget(nullptr)
     , m_dashboard(nullptr)
+    , m_serverStreamPlayer(nullptr)
     , m_dataPage(nullptr)
     , m_deviceModel(nullptr)
     , m_recordModel(nullptr)
@@ -175,6 +199,41 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::requestRecordsForDevice);
 
     /*
+     * 服务器转发后端（与 RtspPlayer 直连并存，默认不启动）：
+     * UserService 从混合 TCP 流里切出媒体帧 -> ServerStreamPlayer 重组 + 解码 -> 显示。
+     */
+    m_serverStreamPlayer = new ServerStreamPlayer(makeStreamDecoder(), this);
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::frameReady, this,
+            [this](const QImage &frame) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setFrame(frame);
+        }
+    });
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::stateChanged, this,
+            [this](const QString &state) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(state);
+        }
+    });
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::errorOccurred, this,
+            [this](const QString &reason) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(QStringLiteral("异常"), reason);
+        }
+        m_dataStatus->setText(reason);
+    });
+    connect(m_userService, &UserService::mediaFrameReceived,
+            m_serverStreamPlayer, &ServerStreamPlayer::onMediaFrame);
+    connect(m_tcpClient, &TcpClient::disconnected, this, [this]() {
+        if (m_serverStreamPlayer != nullptr) {
+            m_serverStreamPlayer->stop();
+        }
+    });
+
+    /*
      * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
      * 避免把 SSH 隧道地址误当成最终部署配置。实际网络读写仍由 TcpClient 负责。
      */
@@ -303,6 +362,27 @@ void MainWindow::showDataPage(quint64 userId)
     const QList<CameraConfig> configs = loadCameraConfigs(configPath, &configError);
     m_dashboard->setCameraConfigs(configs);
     m_dashboard->startPreview();
+
+    /*
+     * 可选：SMARTHOME_USE_SERVER_STREAM=1 时走「服务器转发 → FFmpeg 解码」链路，
+     * 用第一路启用摄像头的 RTSP 地址（或 SMARTHOME_STREAM_URL）请求服务器推流。
+     * 默认不开启，保持原有 RtspPlayer 直连方案。
+     */
+    if (qEnvironmentVariableIntValue("SMARTHOME_USE_SERVER_STREAM") != 0) {
+        QString streamUrl = qEnvironmentVariable("SMARTHOME_STREAM_URL");
+        if (streamUrl.isEmpty()) {
+            for (const CameraConfig &config : configs) {
+                if (config.enabled && !config.rtspUrl.isEmpty()) {
+                    streamUrl = config.rtspUrl;
+                    break;
+                }
+            }
+        }
+        if (m_serverStreamPlayer != nullptr) {
+            m_serverStreamPlayer->start();
+            m_userService->startStream(streamUrl);
+        }
+    }
     if (!configError.isEmpty()) {
         m_dataStatus->setText(QStringLiteral("用户 %1 已登录；%2").arg(QString::number(userId), configError));
     } else {

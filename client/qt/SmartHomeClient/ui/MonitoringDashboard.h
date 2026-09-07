@@ -16,6 +16,9 @@ class QGroupBox;
 class QPushButton;
 class VideoWidget;
 class RtspPlayer;
+#ifdef SMART_HOME_WITH_VLC
+class VlcPlayer;
+#endif
 
 /*
  * MonitoringDashboard 负责登录成功后的监控工作台布局和组件装配。
@@ -67,6 +70,9 @@ private:
     QList<CameraConfig> m_cameraConfigs;
     QList<VideoWidget *> m_videoWidgets;
     QList<RtspPlayer *> m_players;
+#ifdef SMART_HOME_WITH_VLC
+    QList<VlcPlayer *> m_vlcPlayers;
+#endif
     QList<QPushButton *> m_ptzButtons;
     QList<QPushButton *> m_auxPtzButtons;
     QList<ClientProtocol::DeviceInfo> m_devices;

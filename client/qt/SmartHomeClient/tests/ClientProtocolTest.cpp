@@ -168,10 +168,19 @@ int main()
 
     /* ---- 流媒体 / 录像控制协议（角色 A 补齐）---- */
 
-    /* 推流请求无业务字段：type/version/长度/requestId 后跟空正文。 */
-    const QByteArray streamStartRequest = ClientProtocol::encodeStreamStartRequest(0x21);
-    if (!expectTrue(streamStartRequest == QByteArray::fromHex("140100010000000000000021"),
+    /* 推流请求携带 length-string(streamUrl)；空串编码为 2 字节 0 长度。 */
+    const QByteArray streamStartRequest = ClientProtocol::encodeStreamStartRequest(QString(), 0x21);
+    if (!expectTrue(streamStartRequest == QByteArray::fromHex("1401000100000002000000210000"),
                     QStringLiteral("推流请求 TLV 编码不符合线协议"))) {
+        return 1;
+    }
+
+    /* 非空 streamUrl 编码为 uint16 大端长度 + UTF-8 字节。 */
+    const QByteArray streamStartWithUrl = ClientProtocol::encodeStreamStartRequest(
+        QStringLiteral("rtsp://cam"), 0x25);
+    if (!expectTrue(streamStartWithUrl
+                        == QByteArray::fromHex("140100010000000c00000025000a727473703a2f2f63616d"),
+                    QStringLiteral("推流请求 streamUrl 未按 length-string 编码"))) {
         return 1;
     }
 

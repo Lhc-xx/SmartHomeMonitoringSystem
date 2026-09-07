@@ -63,8 +63,9 @@ public:
                                                quint64 deviceId, const QString &startTime,
                                                const QString &endTime, quint32 requestId);
 
-    /* 流媒体控制：推流/停流请求无业务字段，录像开始携带 deviceId。 */
-    static QByteArray encodeStreamStartRequest(quint32 requestId = 0);
+    /* 流媒体控制：推流请求携带 streamUrl（空串=Mock），停流无业务字段，录像开始携带 deviceId。 */
+    static QByteArray encodeStreamStartRequest(const QString &streamUrl = QString(),
+                                               quint32 requestId = 0);
     static QByteArray encodeStreamStopRequest(quint32 requestId = 0);
     static QByteArray encodeRecordStartRequest(quint64 deviceId, quint32 requestId = 0);
     static QByteArray encodeRecordStopRequest(quint32 requestId = 0);

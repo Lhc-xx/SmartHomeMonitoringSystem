@@ -14,6 +14,7 @@ class LoginWidget;
 class MonitoringDashboard;
 class QPushButton;
 class RecordModel;
+class ServerStreamPlayer;
 class TcpClient;
 class UserService;
 class QWidget;
@@ -51,6 +52,7 @@ private:
     UserService *m_userService;
     LoginWidget *m_loginWidget;
     MonitoringDashboard *m_dashboard;
+    ServerStreamPlayer *m_serverStreamPlayer;
     QWidget *m_dataPage;
     DeviceModel *m_deviceModel;
     RecordModel *m_recordModel;

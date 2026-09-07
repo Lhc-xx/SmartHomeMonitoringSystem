@@ -187,9 +187,14 @@ QByteArray ClientProtocol::encodeRecordQueryRequest(quint64 userId, const QByteA
     return encodePacket(RecordQueryRequest, requestId, body);
 }
 
-QByteArray ClientProtocol::encodeStreamStartRequest(quint32 requestId)
+QByteArray ClientProtocol::encodeStreamStartRequest(const QString &streamUrl, quint32 requestId)
 {
-    return encodePacket(StreamStartRequest, requestId, QByteArray());
+    /* payload = length-string(streamUrl)；空串对应服务端 Mock 源。 */
+    QByteArray body;
+    if (!appendLengthString(body, streamUrl.toUtf8())) {
+        return QByteArray();
+    }
+    return encodePacket(StreamStartRequest, requestId, body);
 }
 
 QByteArray ClientProtocol::encodeStreamStopRequest(quint32 requestId)

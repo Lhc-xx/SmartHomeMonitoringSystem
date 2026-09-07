@@ -14,6 +14,9 @@
 
 #include "video/RtspPlayer.h"
 #include "video/VideoWidget.h"
+#ifdef SMART_HOME_WITH_VLC
+#include "video/VlcPlayer.h"
+#endif
 
 namespace {
 
@@ -253,6 +256,10 @@ void MonitoringDashboard::setCameraConfigs(const QList<CameraConfig> &configs)
     stopPreview();
     qDeleteAll(m_players);
     m_players.clear();
+#ifdef SMART_HOME_WITH_VLC
+    qDeleteAll(m_vlcPlayers);
+    m_vlcPlayers.clear();
+#endif
     m_cameraConfigs = configs;
     QList<bool> usedSlots;
     usedSlots << false << false << false << false;
@@ -266,6 +273,30 @@ void MonitoringDashboard::setCameraConfigs(const QList<CameraConfig> &configs)
             appendEvent(QStringLiteral("忽略超出四宫格的摄像头配置：%1").arg(config.name));
             continue;
         }
+#ifdef SMART_HOME_WITH_VLC
+        /*
+         * VLC 后端：libvlc 直接渲染到 VideoWidget 的原生窗口，无需帧转码。
+         * 仅在 WITH_VLC=ON 时参与编译；默认仍走下方 ffmpeg 的 RtspPlayer。
+         */
+        VlcPlayer *player = new VlcPlayer(this);
+        VideoWidget *video = m_videoWidgets.at(slot);
+        video->setNativeVideoMode(true);
+        connect(player, &VlcPlayer::stateChanged, this, [this, slot](const QString &state) {
+            if (slot >= 0 && slot < m_videoWidgets.size()) {
+                m_videoWidgets.at(slot)->setState(state);
+            }
+        });
+        connect(player, &VlcPlayer::errorOccurred, this, [this, slot](const QString &reason) {
+            if (slot >= 0 && slot < m_videoWidgets.size()) {
+                m_videoWidgets.at(slot)->setState(QStringLiteral("异常"), reason);
+            }
+            appendEvent(reason);
+        });
+        if (player->init()) {
+            player->playUrl(config.rtspUrl, reinterpret_cast<void *>(video->winId()));
+        }
+        m_vlcPlayers.append(player);
+#else
         RtspPlayer *player = new RtspPlayer(this);
         player->setSource(config.rtspUrl, config.ffmpegPath);
         connect(player, &RtspPlayer::frameReady, this, [this, slot](const QImage &frame) {
@@ -285,6 +316,7 @@ void MonitoringDashboard::setCameraConfigs(const QList<CameraConfig> &configs)
             appendEvent(reason);
         });
         m_players.append(player);
+#endif
         appendEvent(QStringLiteral("已加载摄像头配置：%1").arg(config.name));
     }
 }
@@ -309,6 +341,18 @@ void MonitoringDashboard::setDevices(const QList<ClientProtocol::DeviceInfo> &de
 
 void MonitoringDashboard::startPreview()
 {
+#ifdef SMART_HOME_WITH_VLC
+    /* VLC 后端在 setCameraConfigs 中已启动，这里只需从暂停/停止状态恢复。 */
+    if (!m_vlcPlayers.isEmpty()) {
+        for (VlcPlayer *player : m_vlcPlayers) {
+            if (player != nullptr) {
+                player->play();
+            }
+        }
+        m_statusLabel->setText(QStringLiteral("正在连接本地 RTSP 摄像头"));
+        return;
+    }
+#endif
     if (m_players.isEmpty()) {
         m_statusLabel->setText(QStringLiteral("未找到启用的本地摄像头配置"));
         appendEvent(QStringLiteral("请先配置 conf/cameras.local.conf"));
@@ -327,6 +371,13 @@ void MonitoringDashboard::stopPreview()
             player->stop();
         }
     }
+#ifdef SMART_HOME_WITH_VLC
+    for (VlcPlayer *player : m_vlcPlayers) {
+        if (player != nullptr) {
+            player->stop();
+        }
+    }
+#endif
 }
 
 QList<VideoWidget *> MonitoringDashboard::videoWidgets() const

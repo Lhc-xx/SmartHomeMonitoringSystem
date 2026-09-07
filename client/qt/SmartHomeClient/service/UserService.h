@@ -25,6 +25,10 @@ public:
     void requestRecordQuery(quint64 deviceId, const QString &startTime,
                             const QString &endTime);
 
+    /* 请求服务器转发一路流（streamUrl 为空 = Mock 源），/ 停止转发。 */
+    void startStream(const QString &streamUrl);
+    void stopStream();
+
     /* 设置单次请求的等待超时（毫秒），超时后通过对应失败信号上报。 */
     void setRequestTimeout(int ms);
 
@@ -37,6 +41,13 @@ signals:
     void recordListReceived(const QList<ClientProtocol::RecordInfo> &records);
     void requestFailed(const QString &reason);
 
+    /* 推流/停流响应成功。 */
+    void streamStarted();
+    void streamStopped();
+
+    /* 从混合 TCP 流里切出的一条完整媒体帧（原始字节，交给解码器）。 */
+    void mediaFrameReceived(const QByteArray &frameBytes);
+
 private slots:
     void onDataReceived(const QByteArray &data);
     void onTcpError(const QString &message);
@@ -45,7 +56,7 @@ private slots:
 
 private:
     /* 串行请求状态确保新操作不会覆盖正在等待的 requestId 和响应缓冲。 */
-    enum class PendingRequest { None, Register, Login, DeviceList, RecordQuery };
+    enum class PendingRequest { None, Register, Login, DeviceList, RecordQuery, StreamStart, StreamStop };
 
     bool beginRequest(PendingRequest type, const QByteArray &packet, quint32 requestId,
                       const QString &actionName);
