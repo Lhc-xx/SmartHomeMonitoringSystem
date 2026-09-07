@@ -12,6 +12,16 @@
  */
 struct CameraConfig
 {
+    /*
+     * 云台控制传输路径：Direct 用于 Windows 客户端与摄像头同网段的场景；
+     * Server 仅用于服务端能够路由到摄像头网络时的 TLV 转发场景。
+     * 用枚举而不是裸字符串，避免错误配置在运行时静默落入错误链路。
+     */
+    enum class PtzTransport {
+        Direct,
+        Server
+    };
+
     QString name;       // 界面显示名称，例如“枪机”或“球机”。
     QString type;       // 设备类型：gun 表示枪机，dome 表示球机。
     QString rtspUrl;    // 摄像头 RTSP 地址，供 RtspPlayer 启动 FFmpeg。
@@ -19,6 +29,8 @@ struct CameraConfig
     QString user;       // 摄像头本地账号，仅保存在客户端进程内存。
     QString password;   // 摄像头本地密码，仅保存在客户端进程内存。
     QString ffmpegPath; // FFmpeg 可执行文件路径；为空时使用系统 PATH。
+    /* 缺省直连，保证局域网客户端不会错误依赖无法访问私网摄像头的云端服务。 */
+    PtzTransport ptzTransport = PtzTransport::Direct;
     bool enabled = false;
 };
 

@@ -15,6 +15,8 @@ class CameraConfigTest : public QObject
 
 private slots:
     void loadsValidGroups();
+    void defaultsPtzTransportToDirect();
+    void rejectsInvalidPtzTransport();
     void rejectsMissingFile();
     void rejectsInvalidRtspUrl();
 };
@@ -62,6 +64,48 @@ void CameraConfigTest::loadsValidGroups()
     }
     QVERIFY(foundGun);
     QVERIFY(foundDome);
+}
+
+void CameraConfigTest::defaultsPtzTransportToDirect()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("default-transport.ini"));
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write("[dome]\nname=Dome\ntype=dome\n"
+               "rtspUrl=rtsp://user:password@camera-b/live/chn=0\n"
+               "webUrl=http://camera-b\n"
+               "enabled=true\n");
+    file.close();
+
+    QString error;
+    const QList<CameraConfig> configs = loadCameraConfigs(path, &error);
+    QCOMPARE(error, QString());
+    QCOMPARE(configs.size(), 1);
+    QCOMPARE(configs.at(0).ptzTransport, CameraConfig::PtzTransport::Direct);
+}
+
+void CameraConfigTest::rejectsInvalidPtzTransport()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("invalid-transport.ini"));
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write("[dome]\nname=Dome\ntype=dome\n"
+               "rtspUrl=rtsp://user:password@camera-b/live/chn=0\n"
+               "webUrl=http://camera-b\n"
+               "ptzTransport=proxy\n"
+               "enabled=true\n");
+    file.close();
+
+    QString error;
+    const QList<CameraConfig> configs = loadCameraConfigs(path, &error);
+    QVERIFY(configs.isEmpty());
+    QVERIFY(error.contains(QStringLiteral("ptzTransport")));
 }
 
 void CameraConfigTest::rejectsMissingFile()

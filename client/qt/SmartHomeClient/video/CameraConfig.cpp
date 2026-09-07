@@ -33,6 +33,24 @@ bool parseBool(const QString &value, bool defaultValue)
     return defaultValue;
 }
 
+/*
+ * 只接受两种明确传输模式。配置错误必须返回 false，不能随意回退：
+ * 一旦误选路径，云台请求可能被发往没有摄像头路由的服务器，现场表现为“按键无反应”。
+ */
+bool parsePtzTransport(const QString &value, CameraConfig::PtzTransport &transport)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized.isEmpty() || normalized == QStringLiteral("direct")) {
+        transport = CameraConfig::PtzTransport::Direct;
+        return true;
+    }
+    if (normalized == QStringLiteral("server")) {
+        transport = CameraConfig::PtzTransport::Server;
+        return true;
+    }
+    return false;
+}
+
 bool isRtspUrl(const QString &value)
 {
     const QUrl url(value);
@@ -72,6 +90,13 @@ QList<CameraConfig> loadCameraConfigs(const QString &path, QString *errorMessage
         config.user = settings.value(QStringLiteral("user")).toString();
         config.password = settings.value(QStringLiteral("password")).toString();
         config.ffmpegPath = settings.value(QStringLiteral("ffmpegPath")).toString().trimmed();
+        if (!parsePtzTransport(settings.value(QStringLiteral("ptzTransport")).toString(),
+                               config.ptzTransport)) {
+            settings.endGroup();
+            setError(errorMessage, QStringLiteral("摄像头分组“%1”的 ptzTransport 必须是 direct 或 server")
+                     .arg(group));
+            return QList<CameraConfig>();
+        }
         config.enabled = parseBool(settings.value(QStringLiteral("enabled")).toString(), false);
         settings.endGroup();
 
