@@ -26,7 +26,7 @@ void appendUint32BE(std::vector<uint8_t> &buffer, uint32_t value) {
 /* 从指定偏移读取 16 位大端数；数据不足时不移动 position。 */
 bool readUint16BE(const std::vector<uint8_t> &buffer, std::size_t &position,
                   uint16_t &value) {
-  if (buffer.size() - position < 2U) {
+  if (position > buffer.size() || buffer.size() - position < 2U) {
     return false;
   }
   value = static_cast<uint16_t>(
@@ -39,7 +39,7 @@ bool readUint16BE(const std::vector<uint8_t> &buffer, std::size_t &position,
 /* 从指定偏移读取 32 位大端数；调用方先保证头部已完整到达。 */
 bool readUint32BE(const std::vector<uint8_t> &buffer, std::size_t &position,
                   uint32_t &value) {
-  if (buffer.size() - position < 4U) {
+  if (position > buffer.size() || buffer.size() - position < 4U) {
     return false;
   }
   value = (static_cast<uint32_t>(buffer[position]) << 24) |
@@ -69,6 +69,8 @@ bool isKnownMessageType(uint16_t type) {
     case MessageType::RECORD_START_RESPONSE:
     case MessageType::RECORD_STOP_REQUEST:
     case MessageType::RECORD_STOP_RESPONSE:
+    case MessageType::PTZ_CONTROL_REQUEST:
+    case MessageType::PTZ_CONTROL_RESPONSE:
       return true;
   }
   return false;
