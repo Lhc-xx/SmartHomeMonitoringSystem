@@ -166,5 +166,68 @@ int main()
         return 1;
     }
 
+    /* ---- 流媒体 / 录像控制协议（角色 A 补齐）---- */
+
+    /* 推流请求携带 length-string(streamUrl)；空串编码为 2 字节 0 长度。 */
+    const QByteArray streamStartRequest = ClientProtocol::encodeStreamStartRequest(QString(), 0x21);
+    if (!expectTrue(streamStartRequest == QByteArray::fromHex("1401000100000002000000210000"),
+                    QStringLiteral("推流请求 TLV 编码不符合线协议"))) {
+        return 1;
+    }
+
+    /* 非空 streamUrl 编码为 uint16 大端长度 + UTF-8 字节。 */
+    const QByteArray streamStartWithUrl = ClientProtocol::encodeStreamStartRequest(
+        QStringLiteral("rtsp://cam"), 0x25);
+    if (!expectTrue(streamStartWithUrl
+                        == QByteArray::fromHex("140100010000000c00000025000a727473703a2f2f63616d"),
+                    QStringLiteral("推流请求 streamUrl 未按 length-string 编码"))) {
+        return 1;
+    }
+
+    /* 停流请求同样无业务字段。 */
+    const QByteArray streamStopRequest = ClientProtocol::encodeStreamStopRequest(0x22);
+    if (!expectTrue(streamStopRequest == QByteArray::fromHex("150100010000000000000022"),
+                    QStringLiteral("停流请求 TLV 编码不符合线协议"))) {
+        return 1;
+    }
+
+    /* 录像开始请求携带 deviceId（8 字节大端 uint64）。 */
+    const QByteArray recordStartRequest = ClientProtocol::encodeRecordStartRequest(7, 0x23);
+    if (!expectTrue(recordStartRequest
+                        == QByteArray::fromHex("1601000100000008000000230000000000000007"),
+                    QStringLiteral("录像开始请求的 deviceId 未正确编码"))) {
+        return 1;
+    }
+
+    /* 录像停止请求无业务字段。 */
+    const QByteArray recordStopRequest = ClientProtocol::encodeRecordStopRequest(0x24);
+    if (!expectTrue(recordStopRequest == QByteArray::fromHex("170100010000000000000024"),
+                    QStringLiteral("录像停止请求 TLV 编码不符合线协议"))) {
+        return 1;
+    }
+
+    /* 推流响应只含 errorCode:int32，成功码为 0。 */
+    ClientProtocol::ControlResponse controlResult;
+    if (!expectTrue(ClientProtocol::decodeStreamStartResponse(
+                        QByteArray::fromHex("14020001000000040000002500000000"), controlResult)
+                        && controlResult.requestId == 0x25
+                        && controlResult.errorCode == ErrorCode::SUCCESS,
+                    QStringLiteral("推流响应未正确解析 errorCode"))) {
+        return 1;
+    }
+
+    /* 未授权（2005）应被正确还原；且错误类型会被拒绝。 */
+    if (!expectTrue(ClientProtocol::decodeRecordStartResponse(
+                        QByteArray::fromHex("160200010000000400000026000007d5"), controlResult)
+                        && controlResult.errorCode == ErrorCode::UNAUTHORIZED,
+                    QStringLiteral("录像开始响应的未授权错误码未正确解析"))) {
+        return 1;
+    }
+    if (!expectTrue(!ClientProtocol::decodeStreamStartResponse(
+                        QByteArray::fromHex("160200010000000400000026000007d5"), controlResult),
+                    QStringLiteral("错误响应类型未被 stream 解码器拒绝"))) {
+        return 1;
+    }
+
     return 0;
 }

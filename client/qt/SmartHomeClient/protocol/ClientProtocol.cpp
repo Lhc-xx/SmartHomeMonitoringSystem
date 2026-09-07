@@ -69,6 +69,16 @@ bool isKnownType(quint16 type)
     case ClientProtocol::DeviceListResponseType:
     case ClientProtocol::RecordQueryRequest:
     case ClientProtocol::RecordQueryResponseType:
+    case ClientProtocol::StreamStartRequest:
+    case ClientProtocol::StreamStartResponseType:
+    case ClientProtocol::StreamStopRequest:
+    case ClientProtocol::StreamStopResponseType:
+    case ClientProtocol::RecordStartRequest:
+    case ClientProtocol::RecordStartResponseType:
+    case ClientProtocol::RecordStopRequest:
+    case ClientProtocol::RecordStopResponseType:
+    case ClientProtocol::PtzControlRequest:
+    case ClientProtocol::PtzControlResponseType:
         return true;
     default:
         return false;
@@ -177,6 +187,47 @@ QByteArray ClientProtocol::encodeRecordQueryRequest(quint64 userId, const QByteA
         return QByteArray();
     }
     return encodePacket(RecordQueryRequest, requestId, body);
+}
+
+QByteArray ClientProtocol::encodeStreamStartRequest(const QString &streamUrl, quint32 requestId)
+{
+    /* payload = length-string(streamUrl)；空串对应服务端 Mock 源。 */
+    QByteArray body;
+    if (!appendLengthString(body, streamUrl.toUtf8())) {
+        return QByteArray();
+    }
+    return encodePacket(StreamStartRequest, requestId, body);
+}
+
+QByteArray ClientProtocol::encodeStreamStopRequest(quint32 requestId)
+{
+    return encodePacket(StreamStopRequest, requestId, QByteArray());
+}
+
+QByteArray ClientProtocol::encodeRecordStartRequest(quint64 deviceId, quint32 requestId)
+{
+    QByteArray body;
+    appendU64(body, deviceId);
+    return encodePacket(RecordStartRequest, requestId, body);
+}
+
+QByteArray ClientProtocol::encodeRecordStopRequest(quint32 requestId)
+{
+    return encodePacket(RecordStopRequest, requestId, QByteArray());
+}
+
+QByteArray ClientProtocol::encodePtzControlRequest(const QString &cameraUrl,
+                                                   const QString &direction,
+                                                   const QString &move,
+                                                   quint32 requestId)
+{
+    QByteArray body;
+    if (!appendLengthString(body, cameraUrl.toUtf8())
+        || !appendLengthString(body, direction.toUtf8())
+        || !appendLengthString(body, move.toUtf8())) {
+        return QByteArray();
+    }
+    return encodePacket(PtzControlRequest, requestId, body);
 }
 
 ClientProtocol::PacketState ClientProtocol::tryTakePacket(QByteArray &receiveBuffer,
@@ -349,5 +400,85 @@ bool ClientProtocol::decodeRecordQueryResponse(const QByteArray &packet, RecordQ
         }
         response.records.append(item);
     }
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodeStreamStartResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != StreamStartResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodeStreamStopResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != StreamStopResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodeRecordStartResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != RecordStartResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodeRecordStopResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != RecordStopResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
+    return offset == decoded.body.size();
+}
+
+bool ClientProtocol::decodePtzControlResponse(const QByteArray &packet, ControlResponse &response)
+{
+    Packet decoded;
+    if (!decodePacket(packet, decoded) || decoded.type != PtzControlResponseType) {
+        return false;
+    }
+    int offset = 0;
+    if (!hasBytes(decoded.body, offset, 4)) {
+        return false;
+    }
+    response.requestId = decoded.requestId;
+    response.errorCode = static_cast<ErrorCode>(static_cast<qint32>(readU32(decoded.body, offset)));
+    offset += 4;
     return offset == decoded.body.size();
 }

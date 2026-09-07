@@ -20,10 +20,13 @@
 #include "config.h"     // smart_home::Config 配置模块
 #include "logger.h"     // Logger 单例 和 LOG_xxx 宏
 #include "reactor.h"    // 网络模块
+#include "recorder.h"   // ensureDirectoryExists（录像目录检查）
 #include "MySQLClient.h"
 #include "UserService.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
+#include "PtzHandler.h"
+#include "RecordService.h"
 
 // 确保日志文件的父目录存在。
 static void ensureLogDir(const std::string &log_file) {
@@ -91,6 +94,12 @@ int main(int argc, char *argv[]) {
     LOG_INFO(("task num    : " + std::to_string(cfg.taskNum())).c_str());
     LOG_INFO(("video path  : " + cfg.videoPath()).c_str());
     LOG_INFO(("log file    : " + cfg.logFile()).c_str());
+    LOG_INFO(("session t/o : " + std::to_string(cfg.sessionTimeout()) + "s").c_str());
+
+    // ---- 第 4.5 步：确保录像目录存在（目录检查）----
+    if (!smart_home::ensureDirectoryExists(cfg.videoPath())) {
+        LOG_WARN(("cannot create video dir: " + cfg.videoPath()).c_str());
+    }
 
     // 创建数据库连接 + 用户业务 + 认证处理器 
     smart_home::MySQLClient mysql;
@@ -102,12 +111,18 @@ int main(int argc, char *argv[]) {
     smart_home::UserService userService(mysql);
     smart_home::AuthHandler authHandler(userService);
     smart_home::ResourceHandler resourceHandler(mysql);
+    smart_home::PtzHandler ptzHandler(cfg.cameraSecret());
+    smart_home::RecordService recordService(mysql);
 
     // ---- 第 5 步：创建 Reactor 并启动事件循环 ----
     // 线程数 队列容量 读取配置
     smart_home::Reactor reactor(cfg.threadNum(), cfg.taskNum()); 
     reactor.setAuthHandler(&authHandler);
     reactor.setResourceHandler(&resourceHandler);
+    reactor.setPtzHandler(&ptzHandler);
+    reactor.setRecordService(&recordService);
+    reactor.setSessionTimeout(cfg.sessionTimeout());
+    reactor.setVideoPath(cfg.videoPath());
     if (!reactor.init(cfg.ip(), cfg.port())) {
         LOG_ERROR("reactor init failed");
         Logger::destroy();

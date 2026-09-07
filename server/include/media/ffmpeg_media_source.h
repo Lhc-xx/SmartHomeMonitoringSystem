@@ -8,6 +8,7 @@
 // 注意：用前置声明隐藏 FFmpeg 类型，本头文件不引入任何 FFmpeg 头。
 // ============================================================================
 
+#include <mutex>
 #include <string>
 
 #include "media/media_source.h"
@@ -32,6 +33,11 @@ private:
     AVFormatContext *_fmtCtx;      // FFmpeg 封装层上下文（"大管家"）
     int _videoStreamIndex;         // 视频流在容器里的下标
     bool _opened;
+
+    // 串行化 open/readPacket/close：StreamSession 的 stop() 会从主线程调用
+    // close() 释放 _fmtCtx，而拉流线程可能正阻塞在 av_read_frame 上，直接释放
+    // 会导致 use-after-free（集成测试偶发段错误）。加锁后 close 等待当前读取结束。
+    mutable std::mutex _mutex;
 };
 
 }  // namespace media

@@ -1,6 +1,7 @@
 #include "UserService.h"
 
 #include "network/TcpClient.h"
+#include "protocol/media_packet.h"
 
 #include <QTimer>
 
@@ -113,10 +114,58 @@ void UserService::requestRecordQuery(quint64 deviceId, const QString &startTime,
                  requestId, QStringLiteral("查询录像"));
 }
 
+void UserService::startStream(const QString &streamUrl)
+{
+    if (!canStartAuthenticatedRequest(QStringLiteral("推流"))) return;
+    const quint32 requestId = nextRequestId();
+    beginRequest(PendingRequest::StreamStart,
+                 ClientProtocol::encodeStreamStartRequest(streamUrl, requestId),
+                 requestId, QStringLiteral("推流"));
+}
+
+void UserService::stopStream()
+{
+    if (!canStartAuthenticatedRequest(QStringLiteral("停流"))) return;
+    const quint32 requestId = nextRequestId();
+    beginRequest(PendingRequest::StreamStop,
+                 ClientProtocol::encodeStreamStopRequest(requestId),
+                 requestId, QStringLiteral("停流"));
+}
+
+void UserService::sendPtzControl(const QString &cameraUrl, const QString &direction,
+                                 const QString &move)
+{
+    if (!canStartAuthenticatedRequest(QStringLiteral("云台控制"))) return;
+    const quint32 requestId = nextRequestId();
+    beginRequest(PendingRequest::PtzControl,
+                 ClientProtocol::encodePtzControlRequest(cameraUrl, direction, move, requestId),
+                 requestId, QStringLiteral("云台控制"));
+}
+
 void UserService::onDataReceived(const QByteArray &data)
 {
     m_receiveBuffer.append(data);
     while (!m_receiveBuffer.isEmpty()) {
+        /*
+         * 1) 先判断开头是不是媒体帧：推流后服务端把 MediaPacket 帧和 TLV 响应
+         *    混在同一条连接上，这里用帧长前缀 + 魔数把媒体帧切出来交给解码器。
+         *    TLV 消息的 type 恒 >= 0x1001，按帧长解释会超过上限，不会误判。
+         */
+        {
+            uint32_t frameLen = 0;
+            const uint8_t *raw = reinterpret_cast<const uint8_t *>(m_receiveBuffer.constData());
+            if (smart_home::protocol::MediaPacketSerializer::peekFrameLength(
+                    raw, static_cast<size_t>(m_receiveBuffer.size()), frameLen)) {
+                if (m_receiveBuffer.size() < static_cast<int>(frameLen)) {
+                    return;  // 媒体帧未收全，等下一批字节
+                }
+                emit mediaFrameReceived(m_receiveBuffer.left(static_cast<int>(frameLen)));
+                m_receiveBuffer.remove(0, static_cast<int>(frameLen));
+                continue;
+            }
+        }
+
+        /* 2) 否则按 TLV 解析。 */
         ClientProtocol::Packet packet;
         ErrorCode parseError = ErrorCode::INVALID_PACKET;
         const ClientProtocol::PacketState state = ClientProtocol::tryTakePacket(
@@ -182,6 +231,38 @@ void UserService::onDataReceived(const QByteArray &data)
                 emit recordListReceived(response.records);
             } else {
                 failPending(errorCodeMessage(response.errorCode, QStringLiteral("查询录像")));
+            }
+        } else if (m_pending == PendingRequest::StreamStart) {
+            ClientProtocol::ControlResponse response;
+            if (!ClientProtocol::decodeStreamStartResponse(packet.raw, response)) {
+                failPending(QStringLiteral("推流响应协议格式错误。"));
+            } else if (response.errorCode == ErrorCode::SUCCESS) {
+                m_pending = PendingRequest::None;
+                m_pendingRequestId = 0;
+                emit streamStarted();
+            } else {
+                failPending(errorCodeMessage(response.errorCode, QStringLiteral("推流")));
+            }
+        } else if (m_pending == PendingRequest::StreamStop) {
+            ClientProtocol::ControlResponse response;
+            if (!ClientProtocol::decodeStreamStopResponse(packet.raw, response)) {
+                failPending(QStringLiteral("停流响应协议格式错误。"));
+            } else if (response.errorCode == ErrorCode::SUCCESS) {
+                m_pending = PendingRequest::None;
+                m_pendingRequestId = 0;
+                emit streamStopped();
+            } else {
+                failPending(errorCodeMessage(response.errorCode, QStringLiteral("停流")));
+            }
+        } else if (m_pending == PendingRequest::PtzControl) {
+            ClientProtocol::ControlResponse response;
+            if (!ClientProtocol::decodePtzControlResponse(packet.raw, response)) {
+                failPending(QStringLiteral("云台控制响应协议格式错误。"));
+            } else if (response.errorCode == ErrorCode::SUCCESS) {
+                m_pending = PendingRequest::None;
+                m_pendingRequestId = 0;
+            } else {
+                failPending(errorCodeMessage(response.errorCode, QStringLiteral("云台控制")));
             }
         }
     }

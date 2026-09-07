@@ -138,6 +138,19 @@ repeat count times:
 
 响应只包含录像元数据，不包含视频字节。录像文件创建、播放和存在性校验由媒体/回放模块负责。
 
+## 6.5 流媒体 / 录像控制消息（补充）
+
+以下控制消息由服务器 Reactor 直接处理，不经过 AuthHandler / ResourceHandler，响应 payload 均为 `errorCode:int32`：
+
+| Type | 名称 | Request Payload |
+|---:|---|---|
+| `0x1401` | `STREAM_START_REQUEST` | `streamUrl:String`。空串或 `mock://...` 使用 Mock 源；其余（rtsp/rtmp/http/文件）交给 FFmpeg 拉流 |
+| `0x1501` | `STREAM_STOP_REQUEST` | 无 |
+| `0x1601` | `RECORD_START_REQUEST` | `deviceId:uint64`（大端） |
+| `0x1701` | `RECORD_STOP_REQUEST` | 无 |
+
+`String` 的编码规则与第 1 节一致（`uint16` 大端字节长度 + UTF-8 字节）。
+
 ## 7. 错误码
 
 | 数值 | 名称 | 含义 |

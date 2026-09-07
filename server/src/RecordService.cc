@@ -52,4 +52,16 @@ bool RecordService::queryByDevice(uint64_t userId,
     return true;
 }
 
+bool RecordService::addRecord(uint64_t deviceId,
+                              const std::string &filePath,
+                              const std::string &startTime,
+                              const std::string &endTime) {
+    /* file_path/时间都是录像器产生的受控值，仍统一走 escape 防注入。 */
+    const std::string sql =
+        "INSERT INTO records (device_id,file_path,start_time,end_time) VALUES (" +
+        std::to_string(deviceId) + ",'" + _mysql.escape(filePath) + "','" +
+        _mysql.escape(startTime) + "','" + _mysql.escape(endTime) + "')";
+    return _mysql.execute(sql);
+}
+
 } // namespace smart_home

@@ -20,6 +20,30 @@
 #include "ui/MonitoringDashboard.h"
 #include "ui_MainWindow.h"
 #include "video/CameraConfig.h"
+#include "video/FilePlaybackPlayer.h"
+#include "video/ServerStreamPlayer.h"
+#include "video/VideoWidget.h"
+
+#include <memory>
+
+#ifdef SMART_HOME_WITH_FFMPEG
+#include "ffmpeg_decoder.h"
+#else
+#include "mock_decoder.h"
+#endif
+
+namespace {
+
+std::unique_ptr<smart_home::client::IDecoder> makeStreamDecoder()
+{
+#ifdef SMART_HOME_WITH_FFMPEG
+    return std::unique_ptr<smart_home::client::IDecoder>(new smart_home::client::FFmpegDecoder());
+#else
+    return std::unique_ptr<smart_home::client::IDecoder>(new smart_home::client::MockDecoder());
+#endif
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -28,6 +52,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_userService(nullptr)
     , m_loginWidget(nullptr)
     , m_dashboard(nullptr)
+    , m_serverStreamPlayer(nullptr)
+    , m_playbackPlayer(nullptr)
+    , m_pendingPlayback(false)
     , m_dataPage(nullptr)
     , m_deviceModel(nullptr)
     , m_recordModel(nullptr)
@@ -155,6 +182,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_userService = new UserService(m_tcpClient, this);
     m_loginWidget = new LoginWidget(m_userService, this);
     m_dashboard = new MonitoringDashboard(this);
+    /* 云台控制经服务器转发：工作台把 direction/move 交给 UserService 发 TLV。 */
+    m_dashboard->setControlForwarder(
+        [this](const QString &cameraUrl, const QString &direction, const QString &move) {
+            m_userService->sendPtzControl(cameraUrl, direction, move);
+        });
     m_dataPage = createDataPage();
     /*
      * 数据页创建时已经以 MainWindow 为父对象，但此时它还不是中央控件。
@@ -173,6 +205,69 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::requestDevices);
     connect(m_dashboard, &MonitoringDashboard::requestRecordList,
             this, &MainWindow::requestRecordsForDevice);
+    connect(m_dashboard, &MonitoringDashboard::requestPlayback,
+            this, &MainWindow::handlePlaybackRequest);
+
+    /* 录像回放：ffmpeg.exe 把本地 TS/MP4 解码成 JPEG -> 显示到通道 01。 */
+    m_playbackPlayer = new FilePlaybackPlayer(this);
+    connect(m_playbackPlayer, &FilePlaybackPlayer::frameReady, this,
+            [this](const QImage &frame) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setFrame(frame);
+        }
+    });
+    connect(m_playbackPlayer, &FilePlaybackPlayer::stateChanged, this,
+            [this](const QString &state) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(state);
+        }
+        m_dataStatus->setText(state);
+    });
+    connect(m_playbackPlayer, &FilePlaybackPlayer::errorOccurred, this,
+            [this](const QString &reason) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(QStringLiteral("异常"), reason);
+        }
+        m_dataStatus->setText(reason);
+    });
+
+    /*
+     * 服务器转发后端（与 RtspPlayer 直连并存，默认不启动）：
+     * UserService 从混合 TCP 流里切出媒体帧 -> ServerStreamPlayer 重组 + 解码 -> 显示。
+     */
+    m_serverStreamPlayer = new ServerStreamPlayer(makeStreamDecoder(), this);
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::frameReady, this,
+            [this](const QImage &frame) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setFrame(frame);
+        }
+    });
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::stateChanged, this,
+            [this](const QString &state) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(state);
+        }
+    });
+    connect(m_serverStreamPlayer, &ServerStreamPlayer::errorOccurred, this,
+            [this](const QString &reason) {
+        const QList<VideoWidget *> widgets = m_dashboard->videoWidgets();
+        if (!widgets.isEmpty()) {
+            widgets.at(0)->setState(QStringLiteral("异常"), reason);
+        }
+        m_dataStatus->setText(reason);
+    });
+    connect(m_userService, &UserService::mediaFrameReceived,
+            m_serverStreamPlayer, &ServerStreamPlayer::onMediaFrame);
+    connect(m_tcpClient, &TcpClient::disconnected, this, [this]() {
+        if (m_serverStreamPlayer != nullptr) {
+            m_serverStreamPlayer->stop();
+        }
+    });
 
     /*
      * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
@@ -303,6 +398,27 @@ void MainWindow::showDataPage(quint64 userId)
     const QList<CameraConfig> configs = loadCameraConfigs(configPath, &configError);
     m_dashboard->setCameraConfigs(configs);
     m_dashboard->startPreview();
+
+    /*
+     * 可选：SMARTHOME_USE_SERVER_STREAM=1 时走「服务器转发 → FFmpeg 解码」链路，
+     * 用第一路启用摄像头的 RTSP 地址（或 SMARTHOME_STREAM_URL）请求服务器推流。
+     * 默认不开启，保持原有 RtspPlayer 直连方案。
+     */
+    if (qEnvironmentVariableIntValue("SMARTHOME_USE_SERVER_STREAM") != 0) {
+        QString streamUrl = qEnvironmentVariable("SMARTHOME_STREAM_URL");
+        if (streamUrl.isEmpty()) {
+            for (const CameraConfig &config : configs) {
+                if (config.enabled && !config.rtspUrl.isEmpty()) {
+                    streamUrl = config.rtspUrl;
+                    break;
+                }
+            }
+        }
+        if (m_serverStreamPlayer != nullptr) {
+            m_serverStreamPlayer->start();
+            m_userService->startStream(streamUrl);
+        }
+    }
     if (!configError.isEmpty()) {
         m_dataStatus->setText(QStringLiteral("用户 %1 已登录；%2").arg(QString::number(userId), configError));
     } else {
@@ -365,8 +481,29 @@ void MainWindow::updateDevices(const QList<ClientProtocol::DeviceInfo> &devices)
 
 void MainWindow::updateRecords(const QList<ClientProtocol::RecordInfo> &records)
 {
+    m_records = records;
     m_recordModel->setRecords(records);
     m_dataStatus->setText(QStringLiteral("已收到 %1 条录像元数据。").arg(records.size()));
+
+    /* 回放请求先触发一次查询，拿到结果后播放最近一条录像。 */
+    if (m_pendingPlayback) {
+        m_pendingPlayback = false;
+        if (!m_records.isEmpty() && m_playbackPlayer != nullptr) {
+            m_playbackPlayer->play(m_records.first().filePath);
+        } else {
+            m_dataStatus->setText(QStringLiteral("没有可回放的录像。"));
+        }
+    }
+}
+
+void MainWindow::handlePlaybackRequest(quint64 deviceId)
+{
+    if (deviceId == 0) {
+        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        return;
+    }
+    m_pendingPlayback = true;
+    requestRecordsForDevice(deviceId);
 }
 
 void MainWindow::showRequestError(const QString &reason)

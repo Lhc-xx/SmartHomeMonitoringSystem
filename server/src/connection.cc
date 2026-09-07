@@ -62,4 +62,43 @@ namespace smart_home{
     time_t Connection::lastActive() const{
         return _lastActive;
     }
+
+    // ---- 连接级登录状态机（角色 A）----
+    void Connection::markLoggedIn(uint64_t userId, const std::string &token){
+        _userId = userId;
+        _token = token;
+        _loginTime = time(nullptr);
+    }
+
+    void Connection::markLoggedOut(){
+        _userId = 0;
+        _token.clear();
+        _loginTime = 0;
+    }
+
+    bool Connection::isAuthenticated() const{
+        return _userId != 0;
+    }
+
+    uint64_t Connection::userId() const{
+        return _userId;
+    }
+
+    const std::string &Connection::token() const{
+        return _token;
+    }
+
+    time_t Connection::loginTime() const{
+        return _loginTime;
+    }
+
+    bool Connection::isSessionExpired(time_t now, int timeoutSeconds) const{
+        if(_userId == 0 || _loginTime == 0){
+            return false;   // 未登录，谈不上会话过期
+        }
+        if(timeoutSeconds <= 0){
+            return false;   // 超时时间非正数视为永不超时
+        }
+        return (now - _loginTime) >= timeoutSeconds;
+    }
 }

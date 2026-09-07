@@ -41,6 +41,12 @@ void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString
     clearReadyState();
 }
 
+void PtzClient::setControlForwarder(
+    const std::function<void(const QString &, const QString &, const QString &)> &forwarder)
+{
+    m_controlForwarder = forwarder;
+}
+
 void PtzClient::probe()
 {
     clearReadyState();
@@ -70,7 +76,13 @@ void PtzClient::startMove(Direction direction)
         stopMove();
     }
     m_moveActive = true;
-    sendControl(buildControlQuery(direction, true));
+
+    /* 注入转发回调后经服务器转发；否则走直连（测试/无服务器场景）。 */
+    if (m_controlForwarder) {
+        m_controlForwarder(m_webUrl.toString(), directionName(direction), QStringLiteral("start"));
+    } else {
+        sendControl(buildControlQuery(direction, true));
+    }
 }
 
 void PtzClient::stopMove()
@@ -80,7 +92,11 @@ void PtzClient::stopMove()
     }
     m_moveActive = false;
     if (m_ready) {
-        sendControl(buildControlQuery(Direction::Up, false));
+        if (m_controlForwarder) {
+            m_controlForwarder(m_webUrl.toString(), QStringLiteral("stop"), QStringLiteral("stop"));
+        } else {
+            sendControl(buildControlQuery(Direction::Up, false));
+        }
     }
 }
 

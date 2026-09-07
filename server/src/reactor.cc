@@ -4,13 +4,23 @@
 #include "protocol/Protocol.h"
 #include "protocol/ErrorCode.h"
 #include "protocol/MessageType.h"
+#include "protocol/AuthProtocol.h"
+#include "session_policy.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
-#include "stream_session.h"
+#include "PtzHandler.h"
+#include "RecordService.h"
+#include "TsRecorder.h"
+#include "media/stream_session.h"
 #include "media/mock_media_source.h"
+#ifdef SMARTHOME_WITH_FFMPEG
+#include "media/ffmpeg_media_source.h"
+#endif
 
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/types.h>
@@ -25,10 +35,46 @@
 #include <map>
 #include <vector>
 
-// 会话空闲超时（秒）：连接超过 N 秒没收到数据就回收
-static const int IDLE_TIMEOUT_SECONDS = 60;
-
 namespace smart_home {
+
+namespace {
+
+// STREAM_START 请求体：uint16(大端) 长度 + UTF-8 字节的 stream URL。
+// 长度字段不足 / 数据不完整 / 长度为 0 时返回空串（表示使用默认 Mock 源）。
+std::string parseStreamUrl(const std::vector<uint8_t> &value) {
+    if (value.size() < 2) {
+        return std::string();
+    }
+    const uint16_t len = static_cast<uint16_t>((value[0] << 8) | value[1]);
+    if (value.size() < static_cast<size_t>(2) + len) {
+        return std::string();
+    }
+    return std::string(reinterpret_cast<const char *>(value.data() + 2), len);
+}
+
+// 根据 stream URL 选择媒体源：空串或 "mock://" 前缀用 Mock，其余交给 FFmpeg。
+// 未编译 FFmpeg 时始终回退 Mock，保证服务器在无 FFmpeg 环境下仍可构建、可演示。
+std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
+#ifdef SMARTHOME_WITH_FFMPEG
+    if (!url.empty() && url.compare(0, 7, "mock://") != 0) {
+        return std::unique_ptr<media::MediaSource>(new media::FFmpegMediaSource());
+    }
+#else
+    (void)url;
+#endif
+    return std::unique_ptr<media::MediaSource>(new media::MockMediaSource());
+}
+
+// 把 time_t 格式化为 records 表 DATETIME 用的 "yyyy-MM-dd HH:mm:ss"。
+std::string formatDbTime(time_t t) {
+    struct tm tmv{};
+    localtime_r(&t, &tmv);
+    char buf[32] = {0};
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmv);
+    return std::string(buf);
+}
+
+}  // namespace
 
     Reactor::Reactor(size_t thread_num, size_t capacity)
     : _epFd(-1)
@@ -166,7 +212,7 @@ namespace smart_home {
     void Reactor::closeConnection(int fd){
         epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr);
 
-        // 停止并回收该连接的流会话
+        // 停止并回收该连接的流会话 / 录像器
         {
             std::lock_guard<std::mutex> guard(_streamsMutex);
             auto it = _streams.find(fd);
@@ -174,6 +220,14 @@ namespace smart_home {
                 it->second->stop();
                 _streams.erase(it);
             }
+            _streamUrls.erase(fd);
+            auto rit = _recorders.find(fd);
+            if(rit != _recorders.end()){
+                rit->second->stop();
+                _recorders.erase(rit);
+            }
+            _recordDeviceIds.erase(fd);
+            _recordStartTimes.erase(fd);
         }
 
         auto it = _conn.find(fd);
@@ -183,10 +237,13 @@ namespace smart_home {
     }
 
     void Reactor::checkIdleConnections(){
+        if(_idleTimeout <= 0){
+            return; // 永不回收空闲连接
+        }
         time_t now = time(nullptr);
         std::vector<int> idleFds;
         for(auto &kv : _conn){
-            if(now - kv.second->lastActive() >= IDLE_TIMEOUT_SECONDS){
+            if(now - kv.second->lastActive() >= _idleTimeout){
                 idleFds.push_back(kv.first);
             }
         }
@@ -204,10 +261,44 @@ namespace smart_home {
         _resourceHandler = handler;
     }
 
+    void Reactor::setPtzHandler(PtzHandler* handler){
+        _ptzHandler = handler;
+    }
+
+    void Reactor::setRecordService(RecordService* service){
+        _recordService = service;
+    }
+
+    void Reactor::setSessionTimeout(int seconds){
+        _sessionTimeout = seconds;
+    }
+
+    void Reactor::setVideoPath(const std::string &path){
+        _videoPath = path.empty() ? "./data/" : path;
+    }
+
+    void Reactor::setIdleTimeout(int seconds){
+        _idleTimeout = seconds;
+    }
+
+    // 未登录 / 会话失效时，按请求类型返回对应的 UNAUTHORIZED 响应。
+    void Reactor::sendUnauthorized(std::shared_ptr<Connection> conn,
+                                   const TlvMessage &msg, MessageType requestType){
+        TlvMessage resp;
+        resp.version   = PROTOCOL_VERSION;
+        resp.requestId = msg.requestId;
+        resp.type      = responseTypeFor(requestType);
+        if (!buildUnauthorizedValue(requestType, resp.value)) {
+            return; // 非受保护请求，不在拦截范围
+        }
+        conn->sendData(TlvProtocol::encode(resp));
+    }
+
     void Reactor::handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg){
-        // 认证请求（注册/登录）：交给 B 的 AuthHandler（PBKDF2 校验 + token 会话）。
-        if (static_cast<MessageType>(msg.type) == MessageType::REGISTER_REQUEST ||
-            static_cast<MessageType>(msg.type) == MessageType::LOGIN_REQUEST) {
+        const MessageType type = static_cast<MessageType>(msg.type);
+
+        // 注册：无需登录即可访问。
+        if (type == MessageType::REGISTER_REQUEST) {
             if (_authHandler) {
                 TlvMessage resp = _authHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
@@ -215,9 +306,42 @@ namespace smart_home {
             return;
         }
 
-        // 资源请求（设备列表/录像查询）：交给 B 的 ResourceHandler（token 会话校验）。
-        if (static_cast<MessageType>(msg.type) == MessageType::DEVICE_LIST_REQUEST ||
-            static_cast<MessageType>(msg.type) == MessageType::RECORD_QUERY_REQUEST) {
+        // 登录：成功后把会话信息写入连接状态，作为后续请求的鉴权依据。
+        if (type == MessageType::LOGIN_REQUEST) {
+            if (_authHandler) {
+                TlvMessage resp = _authHandler->handle(msg);
+                uint64_t userId = 0;
+                std::string token;
+                ErrorCode code = ErrorCode::INTERNAL_ERROR;
+                if (AuthProtocol::decodeLoginResponse(resp.value, userId, token, code)
+                        && code == ErrorCode::SUCCESS) {
+                    conn->markLoggedIn(userId, token);
+                    LOG_INFO(("login success, fd=" + std::to_string(conn->fd())
+                              + " user=" + std::to_string(userId)).c_str());
+                }
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 需要登录的消息：设备列表 / 录像查询 / 推流 / 停流 —— 未登录拦截。
+        if (requiresAuth(type)) {
+            const time_t now = time(nullptr);
+            // 会话超时：登录态存在但已超过会话超时时间 → 强制登出。
+            if (conn->isAuthenticated() && conn->isSessionExpired(now, _sessionTimeout)) {
+                LOG_INFO(("session expired, logout fd=" + std::to_string(conn->fd())).c_str());
+                conn->markLoggedOut();
+            }
+            // 未登录拦截：连接未登录时拒绝所有需要登录的请求。
+            if (!conn->isAuthenticated()) {
+                sendUnauthorized(conn, msg, type);
+                return;
+            }
+        }
+
+        // 资源请求（设备列表/录像查询）：交给 B 的 ResourceHandler（内部再做 token 会话校验）。
+        if (type == MessageType::DEVICE_LIST_REQUEST ||
+            type == MessageType::RECORD_QUERY_REQUEST) {
             if (_resourceHandler) {
                 TlvMessage resp = _resourceHandler->handle(msg);
                 conn->sendData(TlvProtocol::encode(resp));
@@ -225,24 +349,43 @@ namespace smart_home {
             return;
         }
 
-        // 流媒体请求：当前使用 mock 媒体源，后续替换为 C 的 FFmpeg 拉流源。
+        // 云台控制：交给 D 的 PtzHandler（内部经 libcurl+token 转发到摄像头）。
+        if (type == MessageType::PTZ_CONTROL_REQUEST) {
+            if (_ptzHandler) {
+                TlvMessage resp = _ptzHandler->handle(msg);
+                conn->sendData(TlvProtocol::encode(resp));
+            }
+            return;
+        }
+
+        // 流媒体/录像控制请求：按 stream URL 选择 Mock 或 FFmpeg 源（见 makeMediaSource）。
         TlvMessage resp;
         resp.version   = PROTOCOL_VERSION;
         resp.requestId = msg.requestId;
 
         int32_t errCode = static_cast<int32_t>(ErrorCode::SUCCESS);
 
-        switch (static_cast<MessageType>(msg.type)) {
+        switch (type) {
             case MessageType::STREAM_START_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
                 {
-                    // 创建假媒体源 + 流会话，启动并保存
-                    std::unique_ptr<media::MockMediaSource> source(new media::MockMediaSource());
-                    source->open("mock://test");
-                    auto session = std::make_shared<StreamSession>(conn, std::move(source));
-                    session->start();
-                    std::lock_guard<std::mutex> guard(_streamsMutex);
-                    _streams[conn->fd()] = session;
+                    // 按请求携带的 stream URL 选择源：空 / mock:// → Mock；否则 FFmpeg。
+                    const std::string url = parseStreamUrl(msg.value);
+                    std::unique_ptr<media::MediaSource> source = makeMediaSource(url);
+                    auto session = std::make_shared<media::StreamSession>(std::move(source));
+                    session->setSink([conn](const std::vector<uint8_t> &bytes) { conn->sendData(bytes); });
+                    const std::string openUrl = url.empty() ? "mock://test" : url;
+                    if (!session->start(openUrl)) {
+                        errCode = static_cast<int32_t>(ErrorCode::STREAM_OPEN_FAILED);
+                        LOG_WARN(("stream open failed, fd=" + std::to_string(conn->fd())
+                                  + " url=" + openUrl).c_str());
+                    } else {
+                        LOG_INFO(("stream start, fd=" + std::to_string(conn->fd())
+                                  + " url=" + openUrl).c_str());
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        _streams[conn->fd()] = session;
+                        _streamUrls[conn->fd()] = openUrl;
+                    }
                 }
                 break;
 
@@ -254,6 +397,105 @@ namespace smart_home {
                     if (it != _streams.end()) {
                         it->second->stop();
                         _streams.erase(it);
+                    }
+                    _streamUrls.erase(conn->fd());
+                    auto rit = _recorders.find(conn->fd());
+                    if (rit != _recorders.end()) {
+                        rit->second->stop();
+                        _recorders.erase(rit);
+                    }
+                    _recordDeviceIds.erase(conn->fd());
+                    _recordStartTimes.erase(conn->fd());
+                }
+                break;
+
+            case MessageType::RECORD_START_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::RECORD_START_RESPONSE);
+                {
+                    // 解析 deviceId（8 字节大端 uint64），用于生成录像目录名
+                    uint64_t deviceId = 0;
+                    if (msg.value.size() >= 8) {
+                        for (size_t i = 0; i < 8; ++i) {
+                            deviceId = (deviceId << 8) | msg.value[i];
+                        }
+                    }
+                    std::string url;
+                    {
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        auto it = _streamUrls.find(conn->fd());
+                        if (it != _streamUrls.end()) {
+                            url = it->second;
+                        }
+                        if (_recorders.find(conn->fd()) != _recorders.end()) {
+                            errCode = static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED);
+                        }
+                    }
+                    if (errCode == static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED)) {
+                        // 已在录制
+                    } else if (url.empty() || url == "mock://test") {
+                        errCode = static_cast<int32_t>(ErrorCode::STREAM_NOT_FOUND);
+                    } else {
+                        auto recorder = std::make_shared<TsRecorder>();
+                        const std::string outDir = _videoPath + "/" + std::to_string(deviceId)
+                                                 + "_" + std::to_string(time(nullptr));
+                        if (!recorder->start(url, outDir, 10)) {
+                            errCode = static_cast<int32_t>(ErrorCode::RECORD_OPEN_FAILED);
+                        } else {
+                            std::lock_guard<std::mutex> guard(_streamsMutex);
+                            _recorders[conn->fd()] = recorder;
+                            _recordDeviceIds[conn->fd()] = deviceId;
+                            _recordStartTimes[conn->fd()] = formatDbTime(time(nullptr));
+                            LOG_INFO(("record start, fd=" + std::to_string(conn->fd())
+                                      + " dir=" + outDir + " url=" + url).c_str());
+                        }
+                    }
+                }
+                break;
+
+            case MessageType::RECORD_STOP_REQUEST:
+                resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
+                {
+                    std::shared_ptr<TsRecorder> recorder;
+                    {
+                        std::lock_guard<std::mutex> guard(_streamsMutex);
+                        auto it = _recorders.find(conn->fd());
+                        if (it != _recorders.end()) {
+                            recorder = it->second;
+                            _recorders.erase(it);
+                        }
+                    }
+                    if (!recorder) {
+                        errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
+                    } else {
+                        recorder->stop();
+                        const std::vector<std::string> files = recorder->producedFiles();
+
+                        uint64_t deviceId = 0;
+                        std::string startTime;
+                        {
+                            std::lock_guard<std::mutex> guard(_streamsMutex);
+                            auto dit = _recordDeviceIds.find(conn->fd());
+                            if (dit != _recordDeviceIds.end()) {
+                                deviceId = dit->second;
+                                _recordDeviceIds.erase(dit);
+                            }
+                            auto sit = _recordStartTimes.find(conn->fd());
+                            if (sit != _recordStartTimes.end()) {
+                                startTime = sit->second;
+                                _recordStartTimes.erase(sit);
+                            }
+                        }
+                        const std::string endTime = formatDbTime(time(nullptr));
+
+                        // 每个 TS 片段写一条录像元数据索引（录像文件、数据库索引对应）
+                        if (_recordService != nullptr) {
+                            for (const std::string &f : files) {
+                                _recordService->addRecord(deviceId, f, startTime, endTime);
+                            }
+                        }
+                        LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
+                                  + " segments=" + std::to_string(files.size())
+                                  + " device=" + std::to_string(deviceId)).c_str());
                     }
                 }
                 break;

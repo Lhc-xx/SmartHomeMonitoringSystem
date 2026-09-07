@@ -33,6 +33,13 @@ enum class ErrorCode : int32_t{
 
     UNAUTHORIZED        = 2005,
 
+    //流媒体 / 录像 3000+
+    STREAM_NOT_FOUND       = 3001,  // 无活动流会话
+    RECORD_ALREADY_STARTED = 3002,  // 录像已开启
+    RECORD_NOT_STARTED     = 3003,  // 录像未开启
+    RECORD_OPEN_FAILED     = 3004,  // 录像文件创建失败
+    STREAM_OPEN_FAILED     = 3005,  // 媒体源打开失败（FFmpeg 拉流失败等）
+
     //服务器内部错误
     INTERNAL_ERROR      = 9000
     

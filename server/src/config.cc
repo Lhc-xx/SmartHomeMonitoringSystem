@@ -94,6 +94,10 @@ namespace smart_home{
         return getString("log_file","./log/server.log");
     } 
 
+    int Config::sessionTimeout() const{
+        return getInt("session_timeout", 1800);
+    }
+
     //MySQL 配置
     std::string Config::mysqlHost() const{
         return getString("mysql_host", "127.0.0.1");
@@ -113,6 +117,11 @@ namespace smart_home{
 
     std::string Config::mysqlDatabase() const{
         return getString("mysql_database","smarthome");
+    }
+
+    std::string Config::cameraSecret() const{
+        // 迅思维设备接口的默认密钥，脱敏；可按本地环境在 server.conf 覆盖
+        return getString("camera_secret","f6fdffe48c908deb0f4c3bd36c032e72");
     }
     
     

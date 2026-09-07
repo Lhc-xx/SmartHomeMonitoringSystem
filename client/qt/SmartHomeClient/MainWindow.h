@@ -6,6 +6,7 @@
 #include "protocol/ClientProtocol.h"
 
 class DeviceModel;
+class FilePlaybackPlayer;
 class QCheckBox;
 class QDateTimeEdit;
 class QListView;
@@ -14,6 +15,7 @@ class LoginWidget;
 class MonitoringDashboard;
 class QPushButton;
 class RecordModel;
+class ServerStreamPlayer;
 class TcpClient;
 class UserService;
 class QWidget;
@@ -42,6 +44,7 @@ private slots:
     void updateDevices(const QList<ClientProtocol::DeviceInfo> &devices);
     void updateRecords(const QList<ClientProtocol::RecordInfo> &records);
     void showRequestError(const QString &reason);
+    void handlePlaybackRequest(quint64 deviceId);
 
 private:
     QWidget *createDataPage();
@@ -51,6 +54,10 @@ private:
     UserService *m_userService;
     LoginWidget *m_loginWidget;
     MonitoringDashboard *m_dashboard;
+    ServerStreamPlayer *m_serverStreamPlayer;
+    FilePlaybackPlayer *m_playbackPlayer;
+    QList<ClientProtocol::RecordInfo> m_records;
+    bool m_pendingPlayback;
     QWidget *m_dataPage;
     DeviceModel *m_deviceModel;
     RecordModel *m_recordModel;
