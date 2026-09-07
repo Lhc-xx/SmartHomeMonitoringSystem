@@ -2,6 +2,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalSpy>
 #include <QTreeWidget>
 #include <QtTest>
 
@@ -19,6 +20,7 @@ class MonitoringDashboardTest : public QObject
 private slots:
     void createsFourChannelsAndDeviceTree();
     void hidesRedundantHeaderBranding();
+    void recordQueryCarriesSelectedServerDeviceId();
 };
 
 void MonitoringDashboardTest::createsFourChannelsAndDeviceTree()
@@ -45,6 +47,40 @@ void MonitoringDashboardTest::hidesRedundantHeaderBranding()
     // 顶部导航只保留业务入口，避免重复显示登录页已经出现过的品牌文字。
     QVERIFY(dashboard.findChild<QLabel *>(QStringLiteral("dashboardLogo")) == nullptr);
     QVERIFY(dashboard.findChild<QLabel *>(QStringLiteral("dashboardTitle")) == nullptr);
+}
+
+void MonitoringDashboardTest::recordQueryCarriesSelectedServerDeviceId()
+{
+    MonitoringDashboard dashboard;
+    ClientProtocol::DeviceInfo device;
+    device.id = 42;
+    device.name = QStringLiteral("测试设备");
+    device.type = QStringLiteral("camera");
+    device.status = QStringLiteral("online");
+    dashboard.setDevices(QList<ClientProtocol::DeviceInfo>() << device);
+
+    QTreeWidgetItem *serverRoot = dashboard.deviceTree()->findItems(
+        QStringLiteral("服务端设备"), Qt::MatchExactly).value(0);
+    QVERIFY(serverRoot != nullptr);
+    QVERIFY(serverRoot->childCount() == 1);
+    dashboard.deviceTree()->setCurrentItem(serverRoot->child(0));
+
+    QPushButton *recordButton = nullptr;
+    const QList<QPushButton *> buttons = dashboard.findChildren<QPushButton *>();
+    for (QPushButton *button : buttons) {
+        if (button->text() == QStringLiteral("录像查询")) {
+            recordButton = button;
+            break;
+        }
+    }
+    QVERIFY(recordButton != nullptr);
+
+    QSignalSpy requestSpy(&dashboard, &MonitoringDashboard::requestRecordList);
+    recordButton->click();
+    QCOMPARE(requestSpy.count(), 1);
+    QVERIFY2(requestSpy.at(0).size() == 1,
+             "录像查询信号必须携带当前服务端设备 ID");
+    QCOMPARE(requestSpy.at(0).at(0).toULongLong(), static_cast<qulonglong>(42));
 }
 
 QTEST_MAIN(MonitoringDashboardTest)

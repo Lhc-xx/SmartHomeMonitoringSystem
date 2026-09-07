@@ -188,7 +188,12 @@ void MonitoringDashboard::buildUi()
         appendEvent(QStringLiteral("已切换到实时预览"));
     });
     connect(recordButton, &QPushButton::clicked, this, [this]() {
-        emit requestRecordList();
+        /*
+         * 设备树和 B 数据页使用的是两套展示控件；这里直接读取工作台当前
+         * 服务端子项的 UserRole+1，避免 MainWindow 再去访问隐藏的数据页列表。
+         * 未选中服务端设备时发送 0，由 MainWindow 统一给出选择提示。
+         */
+        emit requestRecordList(selectedServerDeviceId());
         appendEvent(QStringLiteral("录像查询入口已就绪"));
     });
     connect(deviceButton, &QPushButton::clicked, this, [this]() {
@@ -429,6 +434,23 @@ void MonitoringDashboard::setPtzButtonsEnabled(bool enabled)
     for (QPushButton *button : m_auxPtzButtons) {
         button->setEnabled(enabled);
     }
+}
+
+quint64 MonitoringDashboard::selectedServerDeviceId() const
+{
+    /*
+     * 枪机/球机两个固定入口没有设备 ID；只有服务端设备树下的子项
+     * 才在 UserRole+1 写入协议返回的 deviceId。
+     */
+    if (m_deviceTree == nullptr) {
+        return 0;
+    }
+    QTreeWidgetItem *item = m_deviceTree->currentItem();
+    if (item == nullptr || item->parent() == nullptr) {
+        return 0;
+    }
+    const QVariant idValue = item->data(0, Qt::UserRole + 1);
+    return idValue.isValid() ? idValue.toULongLong() : 0;
 }
 
 int MonitoringDashboard::slotForConfig(const CameraConfig &config, QList<bool> &usedSlots) const
