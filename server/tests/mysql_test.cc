@@ -36,7 +36,7 @@ bool killConnection(const smart_home::Config &config, unsigned long connectionId
 } // namespace
 
 int main() {
-    /* 集成测试从本地 server.conf 读取凭据，仓库中不保存真实密码。 */
+    /* 集成测试从本地 server.conf 读取凭据。 */
     smart_home::Config config;
     if (!config.load("server/conf/server.conf")) {
         std::cerr << "[FAIL] config load failed" << std::endl;

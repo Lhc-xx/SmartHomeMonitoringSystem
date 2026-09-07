@@ -1,8 +1,8 @@
 /*
- * B 成员设备与录像查询脱敏样例。
+ * B 成员设备与录像查询演示样例。
  *
- * 使用前先通过注册流程创建 demo_user。本文件不创建密码、不写 token，
- * stream_url 保持 NULL，录像路径也只是用于查询展示的虚构相对路径。
+ * 使用前先通过注册流程创建 demo_user。本文件包含真实摄像头 RTSP 地址和录像路径：
+ * stream_url 指向枪机/球机，录像路径位于服务器 video_path（./data/）下。
  */
 USE smarthome;
 
@@ -13,41 +13,54 @@ SET @demo_user_id = (
     SELECT id FROM users WHERE username = 'demo_user' LIMIT 1
 );
 
-/* 通过名称和用户归属避免重复加载样例时创建重复设备。 */
+/* 枪机 */
 INSERT INTO devices (
     user_id, device_name, device_code, stream_url, device_type, status
 )
 SELECT
-    @demo_user_id, '演示摄像头', 'b-demo-camera-001', NULL, 'camera', 1
+    @demo_user_id, '枪机', 'gun-camera-001', 'rtsp://admin:admin@192.168.2.100/live/chn=0', 'gun', 1
 FROM DUAL
 WHERE @demo_user_id IS NOT NULL
   AND NOT EXISTS (
       SELECT 1 FROM devices
-      WHERE user_id = @demo_user_id AND device_code = 'b-demo-camera-001'
+      WHERE user_id = @demo_user_id AND device_code = 'gun-camera-001'
   );
 
-SET @demo_device_id = (
+/* 球机 */
+INSERT INTO devices (
+    user_id, device_name, device_code, stream_url, device_type, status
+)
+SELECT
+    @demo_user_id, '球机', 'dome-camera-001', 'rtsp://admin:admin@192.168.2.160/live/chn=0', 'dome', 1
+FROM DUAL
+WHERE @demo_user_id IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM devices
+      WHERE user_id = @demo_user_id AND device_code = 'dome-camera-001'
+  );
+
+SET @gun_device_id = (
     SELECT id FROM devices
-    WHERE user_id = @demo_user_id AND device_code = 'b-demo-camera-001'
+    WHERE user_id = @demo_user_id AND device_code = 'gun-camera-001'
     LIMIT 1
 );
 
-/* 文件路径只用于 B 的元数据列表验证，不承诺文件存在或能够播放。 */
+/* 录像元数据：文件路径位于服务器 video_path（./data/）下。 */
 INSERT INTO records (
     device_id, file_path, start_time, end_time, file_size
 )
 SELECT
-    @demo_device_id,
-    './demo-records/b-demo-camera-20260906-100000.mp4',
+    @gun_device_id,
+    './data/gun-camera-20260906-100000.ts',
     '2026-09-06 10:00:00',
     '2026-09-06 10:10:00',
     0
 FROM DUAL
-WHERE @demo_device_id IS NOT NULL
+WHERE @gun_device_id IS NOT NULL
   AND NOT EXISTS (
       SELECT 1 FROM records
-      WHERE device_id = @demo_device_id
-        AND file_path = './demo-records/b-demo-camera-20260906-100000.mp4'
+      WHERE device_id = @gun_device_id
+        AND file_path = './data/gun-camera-20260906-100000.ts'
   );
 
 COMMIT;

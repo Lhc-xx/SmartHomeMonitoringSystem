@@ -6,7 +6,7 @@
 
 - `schema/init.sql`：`users`、`devices`、`records`、兼容表 `recordings` 和 `user_sessions` 的完整初始化脚本；
 - `migrations/`：按版本递增的结构变更脚本；
-- `seed/b_demo_data.sql.example`：只包含虚构设备和录像路径的联调样例。
+- `seed/b_demo_data.sql.example`：包含真实设备和录像路径的联调样例。
 
 ## 初始化
 
@@ -25,9 +25,9 @@ mysql -u root -p < database/schema/init.sql
 - `devices`：设备归属、名称、类型和在线状态；
 - `records`：设备 ID、录像文件路径、开始时间、结束时间和可选文件大小。
 
-数据库不保存明文密码和明文 token。`stream_url` 是兼容旧代码的可空字段，真实摄像头地址只能通过未跟踪配置或部署环境提供。
+数据库不保存明文密码和明文 token。`stream_url` 保存摄像头的 RTSP 地址。
 
-## 加载脱敏演示数据
+## 加载演示数据
 
 先通过 Qt 注册一个用户名为 `demo_user` 的测试账号，再执行：
 
@@ -35,12 +35,11 @@ mysql -u root -p < database/schema/init.sql
 mysql -u root -p smarthome < database/seed/b_demo_data.sql.example
 ```
 
-样例使用 `NULL stream_url` 和虚构相对录像路径，只用于验证设备列表及录像查询。它不表示磁盘上已经存在可播放文件。
+样例使用真实 `stream_url` 和录像相对路径，用于验证设备列表及录像查询。
 
 ## 运行 B 数据库测试
 
-仓库中的 `server/conf/server.conf` 是已脱敏模板。真实数据库凭据只能在隔离测试
-工作树中临时填写，测试结束后不得提交，然后执行：
+仓库中的 `server/conf/server.conf` 已包含数据库凭据，直接执行：
 
 ```bash
 cmake -S . -B build \
@@ -63,5 +62,3 @@ SELECT id, user_id, device_name, device_type, status FROM devices ORDER BY id;
 SELECT id, device_id, file_path, start_time, end_time FROM records ORDER BY start_time;
 SELECT id, user_id, expires_at, revoked_at FROM user_sessions ORDER BY id DESC;
 ```
-
-禁止提交真实账号、密码、token、摄像头地址、服务器配置或生产数据。

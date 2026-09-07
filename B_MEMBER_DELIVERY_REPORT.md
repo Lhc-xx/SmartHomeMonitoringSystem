@@ -74,7 +74,7 @@ Reactor 到 B Handler 的路由由 A 成员负责；B Handler 不直接处理 so
 - Qt DeviceModel 和 RecordModel 展示设备及录像元数据；
 - Qt 支持全部时间或指定起止时间查询，并阻止倒置时间范围。
 - Qt 监控工作台提供四宫格、事件列表、设备树和八方向云台按钮；
-- 摄像头账号、密码和 RTSP 地址只放在被忽略的本地 INI 配置中，不进入 Git。
+- 摄像头账号、密码和 RTSP 地址保存在 Qt 客户端 `conf/cameras.conf.example` 配置中。
 
 ### Qt 客户端
 
@@ -135,7 +135,7 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 | Ubuntu 22.04 + MySQL | 完整 `smart_home_server` 构建与链接 | PASS |
 | Ubuntu 22.04 + MySQL | Common、Server 与数据库 CTest | 10/10 PASS |
 | Ubuntu 22.04 + MySQL | mysql、UserService、AuthHandler、ResourceHandler | 4/4 PASS |
-| Ubuntu 22.04 + MySQL | 脱敏 `b_demo_data.sql.example` | PASS |
+| Ubuntu 22.04 + MySQL | `b_demo_data.sql.example` | PASS |
 
 数据库测试覆盖连接/查询/事务、正常注册、重复用户、非法参数、正确登录、错误密码、错误用户、token 非明文落库、设备归属、设备状态 `1 → online` 转换、录像时间过滤和错误 token。Qt 测试另外覆盖摄像头配置校验、JPEG 拆包、视频控件、云台请求、工作台和主窗口构造。
 
@@ -154,7 +154,7 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 
 ## 7. 当前风险与交付建议
 
-1. 合入前使用脱敏演示数据再执行一次 Qt 注册→登录→设备列表→录像查询全链路冒烟；
+1. 合入前使用演示数据再执行一次 Qt 注册→登录→设备列表→录像查询全链路冒烟；
 2. C 生成真实录像文件后，只需将对应路径和时间写入 `records`，B 查询接口无需感知编码格式；
-3. `server/conf/server.conf` 只能保留脱敏占位值，不要提交 Qt Creator `.user`、真实 RTSP 地址、账号、密码和 token；
+3. 不要提交 Qt Creator `.user` 文件；
 4. 由 A/B 共同核对 Handler 路由和 requestId，随后再从 `dev-integration` 向 `master` 提交最终 PR。

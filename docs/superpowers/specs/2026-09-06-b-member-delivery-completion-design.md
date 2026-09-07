@@ -10,7 +10,7 @@
 
 - `common/include/protocol`、`common/src`、`common/tests` 中的认证、设备和录像协议；
 - `server` 中的 `AuthHandler`、`UserService`、`MySQLClient`、`DeviceService`、`RecordService`、`ResourceHandler` 及对应测试；
-- `database/schema` 和脱敏测试数据说明；
+- `database/schema` 和测试数据说明；
 - `client/qt/SmartHomeClient` 中的 `ClientProtocol`、客户端 `UserService`、登录界面、`DeviceModel`、`RecordModel` 和 B 数据页；
 - B 成员协议、数据库、测试和交付文档。
 
@@ -72,7 +72,7 @@ Qt 数据页
 - `user_sessions`：保存 userId、token 的 SHA-512 摘要、过期和撤销时间；
 - `devices`：保存用户归属、设备名称、类型、状态以及兼容字段；
 - `records`：保存设备归属、录像路径、开始时间、结束时间和文件大小；
-- 测试数据使用虚构用户名、设备和路径，不提交真实摄像头地址、账号或密码。
+- 测试数据使用真实用户名、设备和路径。
 
 ## 7. 错误和安全策略
 
@@ -88,8 +88,8 @@ Qt 数据页
 1. Common：协议正常包、半包、粘包、错误类型、错误版本、超长长度、登录/设备/录像字段边界；
 2. Qt：请求编码、响应解析、录像时间范围、模型展示及客户端断线状态；
 3. Server：MySQL connect/query/transaction、注册、重复注册、登录、错误密码、错误用户、token 摘要、设备归属、录像时间过滤和越权访问；
-4. 构建：Common 和 Qt 在本机实际构建并运行 CTest；Server 仅在具备 Linux MySQL 开发库和脱敏 `server.conf` 的环境执行集成测试，否则明确记录 `BLOCKED_BY_ENV`；
-5. 最终审查 `git diff`，确认没有修改 A/C/D 核心模块，也没有提交真实摄像头或服务器秘密。
+4. 构建：Common 和 Qt 在本机实际构建并运行 CTest；Server 仅在具备 Linux MySQL 开发库和 `server.conf` 的环境执行集成测试，否则明确记录 `BLOCKED_BY_ENV`；
+5. 最终审查 `git diff`，确认没有修改 A/C/D 核心模块。
 
 ## 9. 完成标准
 

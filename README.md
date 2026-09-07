@@ -39,7 +39,7 @@ SmartHomeMonitoringSystem/
 │   ├── src/                       # 公共实现
 │   └── tests/                     # 公共模块测试
 ├── server/                        # C++11 服务器【A 主导】
-│   ├── conf/server.conf         # 脱敏配置（直接使用，禁止填真实密码）
+│   ├── conf/server.conf         # 服务器配置
 │   ├── include/                   # 服务器头文件
 │   ├── src/                       # 网络、配置、日志、数据库、媒体等实现
 │   ├── log/                       # 运行日志（仅 .gitkeep）
@@ -58,7 +58,7 @@ SmartHomeMonitoringSystem/
 ├── database/                      # SQL、迁移和种子数据【B】
 │   ├── schema/                    # 完整表结构 SQL
 │   ├── migrations/                # 按版本递增的结构变更 SQL
-│   └── seed/                      # 脱敏初始化数据
+│   └── seed/                      # 初始化数据
 ├── docs/                          # 协议、数据库、设计、开发和测试文档
 │   ├── protocol/                  # TLV 协议、消息类型、错误码、请求响应示例
 │   ├── database/                  # 表结构、索引、字段约束
@@ -114,7 +114,6 @@ make -C server test
 - `dev-integration`：日常集成和联调分支。
 - `dev-lhc`、`dev-lqw`、`dev-pyj`、`dev-xgq`：个人功能分支。
 - 提交信息建议使用 `feat:`、`fix:`、`test:`、`docs:` 前缀。
-- 禁止提交真实密码、token、摄像头账号、地址和密钥；配置文件直接提交脱敏的 `server.conf` / `client.conf`。
 - 公共协议和数据结构先更新 `common/` 与 `docs/protocol/`，再分别实现服务器和客户端。
 
 ## 验收状态（对照分工计划「六天最终验收」）

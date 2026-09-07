@@ -6,7 +6,7 @@
 
 本次不修改 `server`、`common`、Reactor、ThreadPool、连接生命周期、HTTP/JSON 服务端模块、FFmpeg 服务端拉流模块或媒体包转发模块。客户端仍使用既有 TCP/TLV 登录、设备列表和录像查询链路；实时预览不经过服务端，而是由 Qt 客户端直接连接摄像头。
 
-摄像头账号、密码和实际 RTSP 地址属于本地运行配置，不写入源码、测试、文档或 Git 历史。仓库只提供脱敏示例配置。
+摄像头账号、密码和 RTSP 地址保存在 `conf/cameras.conf.example` 配置中。
 
 ## 2. 团队复用审查结论
 
@@ -34,7 +34,7 @@
 | `video/VideoWidget` | 绘制最新帧、频道名称、播放状态和错误覆盖层 | 拉流进程与网络请求 |
 | `network/PtzClient` | 管理球机 HTTP 认证和云台请求；按下开始、松开停止 | 直接播放 RTSP、服务端 TCP 协议 |
 | `ui/MonitoringDashboard` | 深色四宫格布局、设备树、状态栏和控制面板 | 解析 RTSP 帧、保存账号密码 |
-| `conf/cameras.local.conf` | 本机摄像头地址、账号、密码、FFmpeg 路径 | 作为 Git 跟踪文件 |
+| `conf/cameras.conf.example` | 摄像头地址、账号、密码、FFmpeg 路径 | 媒体数据解析 |
 
 所有新增核心类在文件顶部说明中文职责，关键函数说明异步和安全设计原因。
 
@@ -59,7 +59,7 @@
 
 ## 5. 配置、安全与运行行为
 
-新增 `conf/cameras.conf.example`，仅含字段名、脱敏占位地址和注释。用户在本机复制为 `conf/cameras.local.conf` 后填入真实信息；`.gitignore` 忽略所有 `*.local.conf`。
+新增 `conf/cameras.conf.example`，包含枪机/球机的真实 RTSP 地址、账号和密码。
 
 配置字段包括：枪机/球机别名、RTSP URL、摄像头 Web 地址、设备类型、FFmpeg 路径和是否启用自动预览。程序优先读取环境变量指定的本地配置路径，再读取客户端目录下的 `conf/cameras.local.conf`。
 

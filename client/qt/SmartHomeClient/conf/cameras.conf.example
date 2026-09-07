@@ -1,22 +1,21 @@
-# SmartHomeClient 摄像头配置示例（仅模板，不包含真实账号和密码）。
-# 复制为 cameras.local.conf 后再填写本机信息；*.local.conf 已被 Git 忽略。
+# SmartHomeClient 摄像头配置（枪机 + 球机真实地址）
 
 [gun]
 name=枪机
 type=gun
-rtspUrl=rtsp://user:password@camera-ip/live/chn=0
-webUrl=http://camera-ip
-user=user
-password=password
-enabled=false
+rtspUrl=rtsp://admin:admin@192.168.2.100/live/chn=0
+webUrl=http://192.168.2.100
+user=admin
+password=admin
+enabled=true
 ffmpegPath=
 
 [dome]
 name=球机
 type=dome
-rtspUrl=rtsp://user:password@camera-ip/live/chn=0
-webUrl=http://camera-ip
-user=user
-password=password
-enabled=false
+rtspUrl=rtsp://admin:admin@192.168.2.160/live/chn=0
+webUrl=http://192.168.2.160
+user=admin
+password=admin
+enabled=true
 ffmpegPath=
