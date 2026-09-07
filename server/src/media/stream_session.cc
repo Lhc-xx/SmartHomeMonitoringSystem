@@ -14,7 +14,8 @@ namespace media {
 StreamSession::StreamSession(std::unique_ptr<MediaSource> source)
     : _source(std::move(source)),
       _sendQueue(64),      // 缓冲 64 段序列化帧
-      _running(false) {}
+      _running(false),
+      _pullQuit(false) {}
 
 StreamSession::~StreamSession() {
     stop();                // 对象销毁时确保线程和资源都释放
@@ -29,14 +30,17 @@ bool StreamSession::start(const std::string &url) {
         return false;      // 打开源失败
     }
     _running = true;
+    _pullQuit = false;
     _pullThread = std::thread(&StreamSession::pullLoop, this);
     return true;
 }
 
 void StreamSession::stop() {
     if (_running.exchange(false)) {
-        _source->close();      // 让阻塞在 readPacket 的线程返回
-        _sendQueue.close();    // 让阻塞在 push 的线程返回，也让 nextSendPacket 返回 false
+        _pullQuit = true;       // 通知拉流线程退出
+        _source->close();       // 让阻塞在 readPacket 的线程返回
+        _sendQueue.close();     // 让阻塞的 push/pop 返回 false
+        _sendQueue.clear();     // 丢弃未消费的帧，保证 stop 后 nextSendPacket 立即返回 false
         if (_pullThread.joinable()) {
             _pullThread.join();
         }
@@ -54,7 +58,20 @@ bool StreamSession::reconnect() {
     if (!_running.load()) {
         return false;
     }
-    return _source->reconnect();  // 运行中断流重连：只重建底层源连接
+    // 1) 停拉流线程，避免与生产者竞争（保证重连后第一帧是 pts=0）
+    _pullQuit = true;
+    _source->close();            // 若线程阻塞在 readPacket，这里让它返回
+    if (_pullThread.joinable()) {
+        _pullThread.join();
+    }
+    // 2) 重建底层源连接
+    bool ok = _source->reconnect();
+    // 3) 清空断流前缓冲的旧帧
+    _sendQueue.clear();
+    // 4) 重新拉起拉流线程
+    _pullQuit = false;
+    _pullThread = std::thread(&StreamSession::pullLoop, this);
+    return ok;
 }
 
 bool StreamSession::startRecord(const std::string &filePath) {
@@ -88,12 +105,15 @@ bool StreamSession::isRecording() const {
 
 // 拉流线程主循环：生产者
 void StreamSession::pullLoop() {
-    while (_running.load()) {
+    while (!_pullQuit.load()) {
         protocol::MediaPacket pkt;
         if (!_source->readPacket(pkt)) {
-            // 没数据或断流：尝试重连，失败则结束会话
+            // 没数据或断流
+            if (_pullQuit.load()) {
+                break;                       // 正在 stop/reconnect，直接退出
+            }
             if (!_source->reconnect()) {
-                break;
+                break;                       // 自动重连失败，结束会话
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
@@ -117,8 +137,11 @@ void StreamSession::pullLoop() {
             _sink(bytes);
             // 直推模式无缓冲背压，限速避免 Mock 源刷爆连接（≈33fps）
             std::this_thread::sleep_for(std::chrono::milliseconds(30));
-        } else if (!_sendQueue.push(bytes)) {
-            break;          // 队列已关闭
+        } else {
+            // 解耦模式：入队；用 tryPush + 短睡做背压，同时响应 _pullQuit
+            while (!_pullQuit.load() && !_sendQueue.tryPush(bytes)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
     }
 }

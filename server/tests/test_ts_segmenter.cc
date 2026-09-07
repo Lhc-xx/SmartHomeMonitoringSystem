@@ -26,6 +26,7 @@ int main() {
     std::cout << "=== TsSegmenter test begin ===" << std::endl;
 
     MockMediaSource src;                 // 关键帧在 pts 0/30/60/90...
+    src.open("mock://test");             // 先打开源，否则 readPacket 恒返回 false
     TsSegmenter seg(1.0 / 25.0);         // 25fps：每帧 0.04 秒
 
     // 1) 启动，目标每段 1 秒（= 25 帧）

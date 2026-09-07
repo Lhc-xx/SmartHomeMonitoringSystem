@@ -54,7 +54,8 @@ public:
     // 【直推模式】注入发送回调；设置后拉流线程直接把每帧字节交给它。
     void setSink(std::function<void(const std::vector<uint8_t> &)> sink) { _sink = sink; }
 
-    // 断流重连：运行中让底层源重新建立连接（对应分工计划"断流重连"）
+    // 断流重连：停拉流线程 → 重建源连接 → 清空旧帧 → 重启线程。
+    // 保证重连成功后 nextSendPacket 取到的第一帧是重连后的新流（Mock 下 pts 从 0 开始）。
     bool reconnect();
 
     bool isRunning() const { return _running.load(); }
@@ -71,7 +72,8 @@ private:
     common::RingBuffer<std::vector<uint8_t>> _sendQueue;     // 序列化字节缓冲（解耦模式）
     std::thread _pullThread;                                 // 拉流线程
     std::string _url;                                        // 记住 url，供 reconnect
-    std::atomic<bool> _running;                              // 运行标志
+    std::atomic<bool> _running;                              // 会话运行标志
+    std::atomic<bool> _pullQuit;                             // 拉流线程退出信号（stop/reconnect 置位）
 
     std::function<void(const std::vector<uint8_t> &)> _sink; // 可选：直推回调
 
