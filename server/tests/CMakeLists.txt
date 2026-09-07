@@ -144,6 +144,7 @@ add_executable(reactor_test
     ../src/ResourceHandler.cc
     ../src/PtzHandler.cc
     ../src/PtzHttpClient.cc
+    ../src/TsRecorder.cc
 )
 target_link_libraries(reactor_test PRIVATE
     smart_home_common ${MYSQLCLIENT_LIBRARY} OpenSSL::Crypto log4cpp pthread

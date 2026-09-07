@@ -15,6 +15,7 @@ namespace smart_home {
     class AuthHandler;
     class PtzHandler;
     class ResourceHandler;
+    class TsRecorder;
     namespace media { class StreamSession; } // 流会话存储（媒体转发核心）
     class Reactor{
     public:
@@ -36,7 +37,9 @@ namespace smart_home {
         ResourceHandler* _resourceHandler = nullptr; // 资源处理器，由 main 注入
         PtzHandler* _ptzHandler = nullptr;    // 云台转发处理器，由 main 注入
         std::map<int, std::shared_ptr<media::StreamSession>> _streams;   // fd -> 流会话
-        std::mutex _streamsMutex;                                 // 保护 _streams
+        std::map<int, std::string> _streamUrls;                          // fd -> 推流 URL（录像用）
+        std::map<int, std::shared_ptr<TsRecorder>> _recorders;           // fd -> TS 录像器
+        std::mutex _streamsMutex;                                 // 保护 _streams / _streamUrls / _recorders
         void handleMessage(std::shared_ptr<Connection> conn, const TlvMessage &msg);
         void checkIdleConnections();   // 扫描并回收空闲连接
         void sendUnauthorized(std::shared_ptr<Connection> conn, const TlvMessage &msg,

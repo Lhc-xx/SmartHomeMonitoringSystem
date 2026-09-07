@@ -9,6 +9,7 @@
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
 #include "PtzHandler.h"
+#include "TsRecorder.h"
 #include "media/stream_session.h"
 #include "media/mock_media_source.h"
 #ifdef SMARTHOME_WITH_FFMPEG
@@ -201,13 +202,19 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
     void Reactor::closeConnection(int fd){
         epoll_ctl(_epFd, EPOLL_CTL_DEL, fd, nullptr);
 
-        // 停止并回收该连接的流会话
+        // 停止并回收该连接的流会话 / 录像器
         {
             std::lock_guard<std::mutex> guard(_streamsMutex);
             auto it = _streams.find(fd);
             if(it != _streams.end()){
                 it->second->stop();
                 _streams.erase(it);
+            }
+            _streamUrls.erase(fd);
+            auto rit = _recorders.find(fd);
+            if(rit != _recorders.end()){
+                rit->second->stop();
+                _recorders.erase(rit);
             }
         }
 
@@ -361,6 +368,7 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                                   + " url=" + openUrl).c_str());
                         std::lock_guard<std::mutex> guard(_streamsMutex);
                         _streams[conn->fd()] = session;
+                        _streamUrls[conn->fd()] = openUrl;
                     }
                 }
                 break;
@@ -374,39 +382,51 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
                         it->second->stop();
                         _streams.erase(it);
                     }
+                    _streamUrls.erase(conn->fd());
+                    auto rit = _recorders.find(conn->fd());
+                    if (rit != _recorders.end()) {
+                        rit->second->stop();
+                        _recorders.erase(rit);
+                    }
                 }
                 break;
 
             case MessageType::RECORD_START_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_START_RESPONSE);
                 {
-                    // 解析 deviceId（8 字节大端 uint64），用于生成录像文件名
+                    // 解析 deviceId（8 字节大端 uint64），用于生成录像目录名
                     uint64_t deviceId = 0;
                     if (msg.value.size() >= 8) {
                         for (size_t i = 0; i < 8; ++i) {
                             deviceId = (deviceId << 8) | msg.value[i];
                         }
                     }
-                    std::shared_ptr<media::StreamSession> session;
+                    std::string url;
                     {
                         std::lock_guard<std::mutex> guard(_streamsMutex);
-                        auto it = _streams.find(conn->fd());
-                        if (it != _streams.end()) {
-                            session = it->second;
+                        auto it = _streamUrls.find(conn->fd());
+                        if (it != _streamUrls.end()) {
+                            url = it->second;
+                        }
+                        if (_recorders.find(conn->fd()) != _recorders.end()) {
+                            errCode = static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED);
                         }
                     }
-                    if (!session) {
+                    if (errCode == static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED)) {
+                        // 已在录制
+                    } else if (url.empty() || url == "mock://test") {
                         errCode = static_cast<int32_t>(ErrorCode::STREAM_NOT_FOUND);
-                    } else if (session->isRecording()) {
-                        errCode = static_cast<int32_t>(ErrorCode::RECORD_ALREADY_STARTED);
                     } else {
-                        std::string filePath = _videoPath + "/" + std::to_string(deviceId)
-                                             + "_" + std::to_string(time(nullptr)) + ".rec";
-                        if (!session->startRecord(filePath)) {
+                        auto recorder = std::make_shared<TsRecorder>();
+                        const std::string outDir = _videoPath + "/" + std::to_string(deviceId)
+                                                 + "_" + std::to_string(time(nullptr));
+                        if (!recorder->start(url, outDir, 10)) {
                             errCode = static_cast<int32_t>(ErrorCode::RECORD_OPEN_FAILED);
                         } else {
+                            std::lock_guard<std::mutex> guard(_streamsMutex);
+                            _recorders[conn->fd()] = recorder;
                             LOG_INFO(("record start, fd=" + std::to_string(conn->fd())
-                                      + " file=" + filePath).c_str());
+                                      + " dir=" + outDir + " url=" + url).c_str());
                         }
                     }
                 }
@@ -415,24 +435,22 @@ std::unique_ptr<media::MediaSource> makeMediaSource(const std::string &url) {
             case MessageType::RECORD_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
                 {
-                    std::shared_ptr<media::StreamSession> session;
+                    std::shared_ptr<TsRecorder> recorder;
                     {
                         std::lock_guard<std::mutex> guard(_streamsMutex);
-                        auto it = _streams.find(conn->fd());
-                        if (it != _streams.end()) {
-                            session = it->second;
+                        auto it = _recorders.find(conn->fd());
+                        if (it != _recorders.end()) {
+                            recorder = it->second;
+                            _recorders.erase(it);
                         }
                     }
-                    if (!session) {
-                        errCode = static_cast<int32_t>(ErrorCode::STREAM_NOT_FOUND);
+                    if (!recorder) {
+                        errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
                     } else {
-                        std::size_t bytesWritten = 0;
-                        if (!session->stopRecord(bytesWritten)) {
-                            errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
-                        } else {
-                            LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
-                                      + " bytes=" + std::to_string(bytesWritten)).c_str());
-                        }
+                        recorder->stop();
+                        const std::vector<std::string> files = recorder->producedFiles();
+                        LOG_INFO(("record stop, fd=" + std::to_string(conn->fd())
+                                  + " segments=" + std::to_string(files.size())).c_str());
                     }
                 }
                 break;

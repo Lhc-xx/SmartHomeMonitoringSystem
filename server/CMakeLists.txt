@@ -50,6 +50,7 @@ add_executable(smart_home_server
     src/connection.cc # 连接模块
     src/media/stream_session.cc #流会话模块（媒体转发核心）
     src/recorder.cc # 录像文件写入器（角色 A：录像文件生命周期）
+    src/TsRecorder.cc # TS 录像器（角色 C：ffmpeg CLI 分段录 MPEG-TS）
 
     src/media/mock_media_source.cc # 假媒体源（测试用，不依赖 FFmpeg）
     ${FFMPEG_MEDIA_SOURCES} # FFmpeg 真拉流源（角色 C，检测到 FFmpeg 时编入）
