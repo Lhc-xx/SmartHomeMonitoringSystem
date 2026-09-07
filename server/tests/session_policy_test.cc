@@ -47,6 +47,7 @@ int main() {
     expect(requiresAuth(MessageType::STREAM_STOP_REQUEST), "stream stop requires auth");
     expect(requiresAuth(MessageType::RECORD_START_REQUEST), "record start requires auth");
     expect(requiresAuth(MessageType::RECORD_STOP_REQUEST), "record stop requires auth");
+    expect(requiresAuth(MessageType::PTZ_CONTROL_REQUEST), "ptz control requires auth");
 
     // 2) responseTypeFor
     expect(responseTypeFor(MessageType::DEVICE_LIST_REQUEST) ==
@@ -67,6 +68,9 @@ int main() {
     expect(responseTypeFor(MessageType::RECORD_STOP_REQUEST) ==
                static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE),
            "record stop -> record stop response");
+    expect(responseTypeFor(MessageType::PTZ_CONTROL_REQUEST) ==
+               static_cast<uint16_t>(MessageType::PTZ_CONTROL_RESPONSE),
+           "ptz control -> ptz control response");
     expect(responseTypeFor(MessageType::REGISTER_REQUEST) == 0,
            "register has no gated response type");
 
@@ -122,6 +126,13 @@ int main() {
                "record stop unauthorized value built");
         expect(decodeInt32BE(value) == static_cast<int32_t>(ErrorCode::UNAUTHORIZED),
                "record stop unauthorized == UNAUTHORIZED");
+    }
+    {
+        std::vector<uint8_t> value;
+        expect(buildUnauthorizedValue(MessageType::PTZ_CONTROL_REQUEST, value),
+               "ptz control unauthorized value built");
+        expect(decodeInt32BE(value) == static_cast<int32_t>(ErrorCode::UNAUTHORIZED),
+               "ptz control unauthorized == UNAUTHORIZED");
     }
 
     // 6) 非受保护请求不构建 value

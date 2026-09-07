@@ -24,14 +24,17 @@ PtzClient::~PtzClient()
 void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString &password)
 {
     if (m_probeReply != nullptr) {
-        m_probeReply->abort();
-        m_probeReply->deleteLater();
+        QNetworkReply *oldReply = m_probeReply;
         m_probeReply = nullptr;
+        /* 先清空成员再 abort，兼容 Qt 在 abort() 内同步派发 finished。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     if (m_controlReply != nullptr) {
-        m_controlReply->abort();
-        m_controlReply->deleteLater();
+        QNetworkReply *oldReply = m_controlReply;
         m_controlReply = nullptr;
+        oldReply->abort();
+        oldReply->deleteLater();
     }
 
     m_webUrl = webUrl;
@@ -56,8 +59,11 @@ void PtzClient::probe()
     }
 
     if (m_probeReply != nullptr) {
-        m_probeReply->abort();
-        m_probeReply->deleteLater();
+        QNetworkReply *oldReply = m_probeReply;
+        m_probeReply = nullptr;
+        /* 先失效旧指针，避免 abort() 的同步 finished 回调被误认为当前请求。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     /* baseConf 是设备网页端公开的只读能力接口，不会触发任何物理动作。 */
     m_probeReply = m_manager->get(buildRequest(QStringLiteral("/api/ptz/baseConf")));
@@ -157,8 +163,11 @@ QUrl PtzClient::endpoint(const QString &path) const
 void PtzClient::sendControl(const QUrlQuery &query)
 {
     if (m_controlReply != nullptr) {
-        m_controlReply->abort();
-        m_controlReply->deleteLater();
+        QNetworkReply *oldReply = m_controlReply;
+        m_controlReply = nullptr;
+        /* 控制请求同样可能在 abort() 时同步结束，必须先标记旧请求失效。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     m_controlReply = m_manager->get(buildRequest(QStringLiteral("/api/ptz/control"), query));
     connect(m_controlReply, &QNetworkReply::finished,
@@ -169,6 +178,11 @@ void PtzClient::handleProbeFinished()
 {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (reply == nullptr) {
+        return;
+    }
+    /* probe() 可能在旧请求结束前再次发起探测；旧回调不能覆盖当前请求状态。 */
+    if (reply != m_probeReply) {
+        reply->deleteLater();
         return;
     }
     m_probeReply = nullptr;
@@ -198,6 +212,11 @@ void PtzClient::handleControlFinished()
 {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (reply == nullptr) {
+        return;
+    }
+    /* 只处理当前控制请求，避免已取消的旧回复误报失败。 */
+    if (reply != m_controlReply) {
+        reply->deleteLater();
         return;
     }
     m_controlReply = nullptr;
