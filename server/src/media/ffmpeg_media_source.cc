@@ -21,6 +21,7 @@ FFmpegMediaSource::~FFmpegMediaSource() {
 }
 
 bool FFmpegMediaSource::open(const std::string &url) {
+    std::lock_guard<std::mutex> guard(_mutex);
     // 拉网络流（rtsp/rtmp）前，先初始化 FFmpeg 的网络模块
     avformat_network_init();
 
@@ -54,6 +55,7 @@ bool FFmpegMediaSource::open(const std::string &url) {
 }
 
 bool FFmpegMediaSource::readPacket(protocol::MediaPacket &out) {
+    std::lock_guard<std::mutex> guard(_mutex);
     if (!_opened || !_fmtCtx) {
         return false;
     }
@@ -91,6 +93,7 @@ bool FFmpegMediaSource::readPacket(protocol::MediaPacket &out) {
 }
 
 void FFmpegMediaSource::close() {
+    std::lock_guard<std::mutex> guard(_mutex);
     if (_fmtCtx) {
         avformat_close_input(&_fmtCtx);
         _fmtCtx = nullptr;

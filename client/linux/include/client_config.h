@@ -9,9 +9,12 @@
 namespace smart_home {
 
 // 客户端连接配置：默认本机 + 统一端口 7777。
+// stream_url：推流请求携带的媒体地址（rtsp://... / rtmp://... / 文件路径）。
+// 为空时服务端使用 Mock 源（便于无摄像头联调）。
 struct ClientConfig {
     std::string server_ip = "127.0.0.1";
     int server_port = 7777;
+    std::string stream_url;
 };
 
 // 从 key value 格式的配置文件读取 server_ip / server_port。
@@ -52,6 +55,8 @@ inline bool loadClientConfig(const std::string &filepath, ClientConfig &cfg) {
             cfg.server_ip = value;
         } else if (key == "server_port") {
             cfg.server_port = std::atoi(value.c_str());
+        } else if (key == "stream_url") {
+            cfg.stream_url = value;
         }
     }
     return true;

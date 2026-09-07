@@ -31,7 +31,18 @@ enum class MessageType : uint16_t{
     STREAM_START_RESPONSE = 0x1402,
 
     STREAM_STOP_REQUEST = 0x1501,
-    STREAM_STOP_RESPONSE = 0x1502
+    STREAM_STOP_RESPONSE = 0x1502,
+
+    //录像开关（角色 A：录像文件生命周期）
+    RECORD_START_REQUEST = 0x1601,
+    RECORD_START_RESPONSE = 0x1602,
+
+    RECORD_STOP_REQUEST = 0x1701,
+    RECORD_STOP_RESPONSE = 0x1702,
+
+    //云台控制（角色 D：服务器经 libcurl+token 转发到摄像头）
+    PTZ_CONTROL_REQUEST = 0x1801,
+    PTZ_CONTROL_RESPONSE = 0x1802
 };
 
 #endif

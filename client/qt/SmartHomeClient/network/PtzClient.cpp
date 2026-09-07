@@ -27,24 +27,33 @@ void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString
                           int channelId)
 {
     if (m_probeReply != nullptr) {
-        m_probeReply->abort();
-        m_probeReply->deleteLater();
+        QNetworkReply *oldReply = m_probeReply;
         m_probeReply = nullptr;
+        /* 先清空成员再 abort，兼容 Qt 在 abort() 内同步派发 finished。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     if (m_controlReply != nullptr) {
-        m_controlReply->abort();
-        m_controlReply->deleteLater();
+        QNetworkReply *oldReply = m_controlReply;
         m_controlReply = nullptr;
+        oldReply->abort();
+        oldReply->deleteLater();
     }
 
     m_webUrl = webUrl;
     m_user = user;
     m_password = password;
-    /* 摄像头 API 使用从 1 开始的逻辑通道；非法值回退到首路。 */
+    /* 防止非法通道或速度值直接进入摄像头请求。 */
     m_channelId = qMax(1, channelId);
     m_ptzSpeed = 4;
     m_moveActive = false;
     clearReadyState();
+}
+
+void PtzClient::setControlForwarder(
+    const std::function<void(const QString &, const QString &, const QString &)> &forwarder)
+{
+    m_controlForwarder = forwarder;
 }
 
 void PtzClient::probe()
@@ -56,8 +65,11 @@ void PtzClient::probe()
     }
 
     if (m_probeReply != nullptr) {
-        m_probeReply->abort();
-        m_probeReply->deleteLater();
+        QNetworkReply *oldReply = m_probeReply;
+        m_probeReply = nullptr;
+        /* 先失效旧指针，避免 abort() 的同步 finished 回调被误认为当前请求。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     /* baseConf 是设备网页端公开的只读能力接口，不会触发任何物理动作。 */
     m_probeReply = m_manager->get(buildRequest(QStringLiteral("/api/ptz/baseConf")));
@@ -76,7 +88,13 @@ void PtzClient::startMove(Direction direction)
         stopMove();
     }
     m_moveActive = true;
-    sendControl(buildControlQuery(direction, true, m_channelId, m_ptzSpeed));
+
+    /* 注入转发回调后经服务器转发；否则走直连（测试/无服务器场景）。 */
+    if (m_controlForwarder) {
+        m_controlForwarder(m_webUrl.toString(), directionName(direction), QStringLiteral("start"));
+    } else {
+        sendControl(buildControlQuery(direction, true, m_channelId, m_ptzSpeed));
+    }
 }
 
 void PtzClient::stopMove()
@@ -86,7 +104,11 @@ void PtzClient::stopMove()
     }
     m_moveActive = false;
     if (m_ready) {
-        sendControl(buildControlQuery(Direction::Up, false, m_channelId, m_ptzSpeed));
+        if (m_controlForwarder) {
+            m_controlForwarder(m_webUrl.toString(), QStringLiteral("stop"), QStringLiteral("stop"));
+        } else {
+            sendControl(buildControlQuery(Direction::Up, false, m_channelId, m_ptzSpeed));
+        }
     }
 }
 
@@ -100,9 +122,9 @@ QUrlQuery PtzClient::buildControlQuery(Direction direction, bool start,
 {
     QUrlQuery query;
     /*
-     * 设备网页端并不接受抽象的 direction/move 字段，而是要求：
+     * 该摄像头网页端不接受旧的 direction/move 参数，而是要求：
      * channelId=逻辑通道、value=方向编码、speed=速度。
-     * 固定字段顺序便于抓包排查，也让离线测试可以锁定真实接口契约。
+     * 固定插入顺序便于抓包排查，并与网页端实际请求保持一致。
      */
     query.addQueryItem(QStringLiteral("channelId"), QString::number(qMax(1, channelId)));
     query.addQueryItem(QStringLiteral("value"), deviceValue(direction, start));
@@ -172,8 +194,11 @@ QUrl PtzClient::endpoint(const QString &path) const
 void PtzClient::sendControl(const QUrlQuery &query)
 {
     if (m_controlReply != nullptr) {
-        m_controlReply->abort();
-        m_controlReply->deleteLater();
+        QNetworkReply *oldReply = m_controlReply;
+        m_controlReply = nullptr;
+        /* 控制请求同样可能在 abort() 时同步结束，必须先标记旧请求失效。 */
+        oldReply->abort();
+        oldReply->deleteLater();
     }
     m_controlReply = m_manager->get(buildRequest(QStringLiteral("/api/ptz/control"), query));
     connect(m_controlReply, &QNetworkReply::finished,
@@ -184,6 +209,11 @@ void PtzClient::handleProbeFinished()
 {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
     if (reply == nullptr) {
+        return;
+    }
+    /* probe() 可能在旧请求结束前再次发起探测；旧回调不能覆盖当前请求状态。 */
+    if (reply != m_probeReply) {
+        reply->deleteLater();
         return;
     }
     m_probeReply = nullptr;
@@ -221,10 +251,23 @@ void PtzClient::handleControlFinished()
     if (reply == nullptr) {
         return;
     }
+    /* 只处理当前控制请求，避免已取消的旧回复误报失败。 */
+    if (reply != m_controlReply) {
+        reply->deleteLater();
+        return;
+    }
     m_controlReply = nullptr;
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+    const QJsonObject object = document.object();
+    const bool deviceRejected = document.isObject()
+        && object.value(QStringLiteral("code")).isDouble()
+        && object.value(QStringLiteral("code")).toInt() != 0;
     if (reply->error() != QNetworkReply::NoError
-        || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() < 200
-        || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() >= 300) {
+        || statusCode < 200 || statusCode >= 300 || deviceRejected) {
+        /* HTTP 200 仍可能携带设备业务错误；失败后立即禁用动作，避免重复发送。 */
+        m_ready = false;
+        emit ptzReady(false);
         emit errorOccurred(QStringLiteral("云台控制请求失败"));
     }
     reply->deleteLater();

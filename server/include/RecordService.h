@@ -23,6 +23,12 @@ public:
                        const std::string &endTime,
                        std::vector<RecordInfo> &records);
 
+    /* 录像停止时写入一条元数据索引；时间格式 yyyy-MM-dd HH:mm:ss。 */
+    bool addRecord(uint64_t deviceId,
+                   const std::string &filePath,
+                   const std::string &startTime,
+                   const std::string &endTime);
+
 private:
     MySQLClient &_mysql;
 };

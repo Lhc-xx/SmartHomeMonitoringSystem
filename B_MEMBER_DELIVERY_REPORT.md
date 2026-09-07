@@ -121,7 +121,7 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 
 ### Qt实时预览与云台
 
-每路 `RtspPlayer` 通过 `QProcess` 启动本机 FFmpeg，使用 RTSP over TCP 输出受限尺寸的 MJPEG 字节流；Qt 在事件循环中拆分 JPEG 起止标记并交给 `VideoWidget` 等比绘制。`PtzClient` 先只读探测 `/api/ptz/baseConf`，球机被选中且能力探测成功后，方向按钮按下发送开始请求、释放/失焦发送停止请求。
+每路 `RtspPlayer` 通过 `QProcess` 启动本机 FFmpeg，使用 RTSP over TCP 输出受限尺寸的 MJPEG 字节流；Qt 在事件循环中拆分 JPEG 起止标记并交给 `VideoWidget` 等比绘制。`PtzClient` 先只读探测 `/api/ptz/baseConf`，球机被选中且能力探测成功后，方向按钮按下发送开始请求、释放/失焦发送停止请求。设备网页端控制统一使用 `channelId/value/speed`，八方向映射为 `1/2/3/4/u/d/l/r`，停止为 `s`。
 
 ## 5. 测试结果
 
@@ -131,7 +131,7 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 |---|---|---|
 | Windows MinGW32 | Common 顶层独立构建与 CTest | 5/5 PASS |
 | Qt 5.14.2 MinGW32 | SmartHomeClient 全量构建 | PASS |
-| Qt 5.14.2 MinGW32 | SmartHomeClient 全部 9 项 CTest | 9/9 PASS |
+| Qt 5.14.2 MinGW32 | SmartHomeClient 全部 12 项 CTest | 12/12 PASS |
 | Ubuntu 22.04 + MySQL | 完整 `smart_home_server` 构建与链接 | PASS |
 | Ubuntu 22.04 + MySQL | Common、Server 与数据库 CTest | 10/10 PASS |
 | Ubuntu 22.04 + MySQL | mysql、UserService、AuthHandler、ResourceHandler | 4/4 PASS |
@@ -141,12 +141,12 @@ DeviceModel 和 RecordModel 基于 `QAbstractListModel`，将协议结果转换�
 
 ### FAIL
 
-无。最新 `dev-integration` 已补齐 `Reactor::setResourceHandler`，本分支合并后完整服务器构建、链接和 10 项 CTest 均通过。
+无。Qt 和 Common 本轮均通过；服务器在 Windows 本机未进入编译阶段，原因见下方环境说明。
 
 ### BLOCKED_BY_ENV 与联调风险
 
-- Windows 没有 MySQL Server 开发头文件/库，因此服务端不在 Windows 编译；已经在 Ubuntu/MySQL 环境完成 B 测试；
-- 两路测试摄像头的 RTSP 实测已能由本机 FFmpeg 拉取单帧（不是环境阻断）；实际长时间稳定性仍受摄像头网络、账号权限和设备固件影响。云台控制接口的具体参数由设备 Web API 决定，当前代码只自动探测能力，不会自动触发移动。
+- Windows 本机缺少服务端所需的 libcurl/cJSON（同时服务端还依赖 MySQL 客户端库），因此本轮服务器 configure 被标记为 `BLOCKED_BY_ENV`；不能据此宣称 Windows 服务端构建通过。
+- 本轮未启动服务器、未执行真实 TCP/RTSP 联调；摄像头长时间稳定性仍受网段、账号权限和设备固件影响。Qt 默认直连摄像头，只有设置 `SMARTHOME_PTZ_TRANSPORT=server` 时才使用服务端转发，服务端部署时还必须配置摄像头 IPv4 白名单。
 
 ## 6. 面试介绍版本
 

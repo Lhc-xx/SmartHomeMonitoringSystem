@@ -1,4 +1,5 @@
 #include "protocol/DeviceProtocol.h"
+#include "protocol/Protocol.h"
 
 #include <cassert>
 #include <cstdint>
@@ -50,6 +51,18 @@ int main() {
   devices.assign(65536U, DeviceInfo());
   assert(!DeviceProtocol::encodeDeviceListResponse(ErrorCode::SUCCESS, devices,
                                                    response));
+
+  /* 即使条目数未超过 uint16，上层 value 仍不得超过统一的 1 MiB 上限。 */
+  devices.clear();
+  DeviceInfo largeDevice;
+  largeDevice.deviceName.assign(60000U, 'n');
+  largeDevice.deviceType.assign(60000U, 't');
+  largeDevice.status.assign(60000U, 's');
+  devices.assign(20U, largeDevice);
+  assert(!DeviceProtocol::encodeDeviceListResponse(ErrorCode::SUCCESS, devices,
+                                                   response));
+  response.assign(static_cast<std::size_t>(MAX_TLV_BODY_SIZE) + 1U, 0U);
+  assert(!DeviceProtocol::decodeDeviceListResponse(response, code, devices));
   std::cout << "[PASS] device_protocol_test" << std::endl;
   return 0;
 }

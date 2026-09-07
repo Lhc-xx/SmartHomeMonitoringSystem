@@ -80,6 +80,28 @@ void testHalfPacketAndStickyPackets() {
   assert(buffer.empty());
 }
 
+void testPtzMessagesAreRecognized() {
+  /* PTZ 也走同一套 TLV 外层；白名单遗漏会让服务端无法解析云台请求。 */
+  TlvMessage message;
+  message.type = static_cast<uint16_t>(MessageType::PTZ_CONTROL_REQUEST);
+  message.requestId = 99U;
+  message.value = {0x01, 0x02, 0x03};
+  std::vector<uint8_t> buffer = TlvProtocol::encode(message);
+  assert(!buffer.empty());
+
+  TlvMessage decoded;
+  assert(TlvProtocol::decode(buffer, decoded) == TlvDecodeStatus::Decoded);
+  assert(decoded.type == message.type);
+  assert(decoded.requestId == message.requestId);
+  assert(decoded.value == message.value);
+
+  message.type = static_cast<uint16_t>(MessageType::PTZ_CONTROL_RESPONSE);
+  buffer = TlvProtocol::encode(message);
+  assert(!buffer.empty());
+  assert(TlvProtocol::decode(buffer, decoded) == TlvDecodeStatus::Decoded);
+  assert(decoded.type == message.type);
+}
+
 void testRejectedHeaderStates() {
   /* 未知 type、错误 version、超大 body 分别必须返回可区分的状态。 */
   TlvMessage decoded;
@@ -109,6 +131,7 @@ void testRejectedHeaderStates() {
 int main() {
   testGoldenBytesAndDecodedStatus();
   testHalfPacketAndStickyPackets();
+  testPtzMessagesAreRecognized();
   testRejectedHeaderStates();
   std::cout << "[PASS] protocol_test" << std::endl;
   return 0;

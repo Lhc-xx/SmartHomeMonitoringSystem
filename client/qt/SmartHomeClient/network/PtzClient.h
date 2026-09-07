@@ -6,15 +6,18 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <functional>
+
 class QNetworkAccessManager;
 class QNetworkReply;
 
 /*
  * PtzClient 负责把 Qt 工作台的云台操作适配为摄像头网页 API 请求。
  *
- * 它只访问摄像头 Web 服务，不接触项目 TCP/TLV 协议。程序必须先完成
- * /api/ptz/baseConf 的只读探测，方向按钮在收到成功响应前保持禁用；
- * 真实移动只由用户按下/释放按钮触发，停止请求在释放、失焦和析构时补发。
+ * 默认走摄像头 Web 服务直连（探针 /api/ptz/baseConf、控制 /api/ptz/control）。
+ * 若通过 setControlForwarder() 注入转发回调，则云台控制改经服务器 TLV 转发
+ * （PTZ_CONTROL_REQUEST），能力探测仍走直连只读接口。程序必须先完成探测，
+ * 方向按钮在收到成功响应前保持禁用；停止请求在释放、失焦和析构时补发。
  */
 class PtzClient : public QObject
 {
@@ -35,9 +38,11 @@ public:
     explicit PtzClient(QObject *parent = nullptr);
     ~PtzClient() override;
 
-    /* channelId 与设备网页端的逻辑通道一致，RTSP chn=0 对应默认值 1。 */
+    /* 摄像头网页端通道从 1 开始；RTSP chn=0 对应默认 channelId=1。 */
     void setCamera(const QUrl &webUrl, const QString &user, const QString &password,
                    int channelId = 1);
+    /* 注入转发回调后，控制请求交给服务器转发（参数：cameraUrl, direction, move）。 */
+    void setControlForwarder(const std::function<void(const QString &, const QString &, const QString &)> &forwarder);
     void probe();
     void startMove(Direction direction);
     void stopMove();
@@ -62,7 +67,7 @@ private:
     QUrl endpoint(const QString &path) const;
     void sendControl(const QUrlQuery &query);
     void clearReadyState();
-    /* 将方向转换为摄像头网页 API 的 value 字段，停止统一使用 s。 */
+    /* 将八方向/停止映射到设备 API 的 value 字段。 */
     static QString deviceValue(Direction direction, bool start);
 
     QNetworkAccessManager *m_manager;
@@ -75,6 +80,7 @@ private:
     bool m_moveActive;
     int m_channelId;
     int m_ptzSpeed;
+    std::function<void(const QString &, const QString &, const QString &)> m_controlForwarder;
 };
 
 #endif // PTZCLIENT_H

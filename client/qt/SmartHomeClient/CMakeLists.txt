@@ -13,6 +13,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt5 REQUIRED COMPONENTS Widgets Network Test)
 include(CTest)
 
+#[[
+可选的 VLC（libvlc）播放后端，由 player-xia 工程合并而来。
+默认关闭：仓库只提交了 VLC 公共头文件（third_party/vlc/include），
+libvlc.lib / libvlccore.lib 及对应 DLL 因体积和 .gitignore 规则未入库。
+开启前请先安装 VLC SDK 或完整 VLC，并用 -DVLC_LIBRARY_DIR=<sdk/lib> 指定库目录。
+]]
+option(WITH_VLC "Build with optional VLC (libvlc) playback backend" OFF)
+
+#[[
+可选的「服务器转发 → FFmpeg 解码」后端。默认关闭：Windows 下通常没有 MinGW
+的 FFmpeg 开发库，关闭时用 MockDecoder 跑通「重组 → 解码 → 显示」链路；
+要真解码需安装 FFmpeg 开发库并用 -DWITH_QT_FFMPEG=ON 开启。
+]]
+option(WITH_QT_FFMPEG "Build Qt client with real FFmpeg (avcodec/swscale) decoder" OFF)
+
+set(FFMPEG_DECODER_SOURCES "")
+set(FFMPEG_DECODER_LIBRARIES "")
+set(QT_FFMPEG_INCLUDE_DIR "")
+if(WITH_QT_FFMPEG)
+    find_path(QT_FFMPEG_INCLUDE_DIR libavcodec/avcodec.h)
+    find_library(QT_AVCODEC_LIBRARY avcodec)
+    find_library(QT_AVUTIL_LIBRARY avutil)
+    find_library(QT_SWSCALE_LIBRARY swscale)
+    if(QT_FFMPEG_INCLUDE_DIR AND QT_AVCODEC_LIBRARY AND QT_AVUTIL_LIBRARY AND QT_SWSCALE_LIBRARY)
+        list(APPEND FFMPEG_DECODER_SOURCES ../src/ffmpeg_decoder.cc)
+        list(APPEND FFMPEG_DECODER_LIBRARIES ${QT_AVCODEC_LIBRARY} ${QT_AVUTIL_LIBRARY} ${QT_SWSCALE_LIBRARY})
+        message(STATUS "FFmpeg found, building FFmpegDecoder into SmartHomeClient")
+    else()
+        message(WARNING "FFmpeg dev libraries not found; falling back to MockDecoder")
+    endif()
+endif()
+
 add_executable(SmartHomeClient
     main.cpp
     MainWindow.cpp
@@ -37,10 +69,21 @@ add_executable(SmartHomeClient
     ui/LoginWidget.cpp
     ui/LoginWidget.h
     ui/LoginWidget.ui
+    ui/RegisterDialog.cpp
+    ui/RegisterDialog.h
+    ui/RegisterDialog.ui
     ui/MonitoringDashboard.cpp
     ui/MonitoringDashboard.h
     video/VideoWidget.cpp
     video/VideoWidget.h
+    video/ServerStreamPlayer.cpp
+    video/ServerStreamPlayer.h
+    video/FilePlaybackPlayer.cpp
+    video/FilePlaybackPlayer.h
+    ../src/mock_decoder.cc
+    ${FFMPEG_DECODER_SOURCES}
+    ../../../common/src/media_packet.cc
+    ../../../common/src/media_reassembler.cc
 )
 
 #[[
@@ -48,10 +91,62 @@ add_executable(SmartHomeClient
 ]]
 target_include_directories(SmartHomeClient PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
 )
 target_link_libraries(SmartHomeClient PRIVATE Qt5::Widgets Qt5::Network)
 target_compile_features(SmartHomeClient PRIVATE cxx_std_11)
+
+#[[
+Qt Creator 默认从构建目录启动可执行文件，而摄像头本地配置保存在源码目录
+conf/cameras.local.conf（该文件已被 .gitignore 忽略）。如果开发机存在该文件，
+构建后复制到 exe 同级的 conf 目录，使登录成功后的工作台无需额外修改运行目录；
+文件不存在时不执行复制，也不会把真实账号、密码或地址写入仓库。
+]]
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/conf/cameras.local.conf")
+    add_custom_command(TARGET SmartHomeClient POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:SmartHomeClient>/conf"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/conf/cameras.local.conf"
+            "$<TARGET_FILE_DIR:SmartHomeClient>/conf/cameras.local.conf"
+        VERBATIM
+    )
+endif()
+
+# FFmpeg 解码器（角色 C，检测到时编译并链接）
+if(FFMPEG_DECODER_SOURCES)
+    target_include_directories(SmartHomeClient PRIVATE ${QT_FFMPEG_INCLUDE_DIR})
+    target_link_libraries(SmartHomeClient PRIVATE ${FFMPEG_DECODER_LIBRARIES})
+    target_compile_definitions(SmartHomeClient PRIVATE SMART_HOME_WITH_FFMPEG=1)
+endif()
+
+if(WITH_VLC)
+    set(VLC_LIBRARY_DIR "" CACHE PATH "Directory containing libvlc(.lib/.so) and libvlccore(.lib/.so)")
+    find_library(VLC_LIBRARY
+        NAMES libvlc vlc
+        HINTS ${VLC_LIBRARY_DIR}
+        PATH_SUFFIXES lib sdk/lib)
+    find_library(VLCCORE_LIBRARY
+        NAMES libvlccore vlccore
+        HINTS ${VLC_LIBRARY_DIR}
+        PATH_SUFFIXES lib sdk/lib)
+    if(NOT VLC_LIBRARY OR NOT VLCCORE_LIBRARY)
+        message(FATAL_ERROR
+            "WITH_VLC=ON 但未找到 libvlc/libvlccore 库，请用 -DVLC_LIBRARY_DIR=<sdk/lib 目录> 指定。")
+    endif()
+
+    target_sources(SmartHomeClient PRIVATE
+        video/VlcPlayer.cpp
+        video/VlcPlayer.h
+    )
+    target_include_directories(SmartHomeClient PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vlc/include
+    )
+    target_link_libraries(SmartHomeClient PRIVATE ${VLC_LIBRARY} ${VLCCORE_LIBRARY})
+    target_compile_definitions(SmartHomeClient PRIVATE SMART_HOME_WITH_VLC=1)
+    #[[运行时需要 libvlc.dll / libvlccore.dll 及 plugins 目录与可执行文件同级。]]
+endif()
 
 #[[
 协议测试只使用 QByteArray，不创建窗口、不连接服务器，符合离线测试约束。
@@ -93,6 +188,20 @@ if(BUILD_TESTING)
     target_link_libraries(RtspPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Network Qt5::Test)
     target_compile_features(RtspPlayerTest PRIVATE cxx_std_11)
     add_test(NAME RtspPlayerTest COMMAND RtspPlayerTest)
+
+    add_executable(FilePlaybackPlayerTest
+        tests/FilePlaybackPlayerTest.cpp
+        video/FilePlaybackPlayer.cpp
+        video/FilePlaybackPlayer.h
+        video/RtspPlayer.cpp
+        video/RtspPlayer.h
+    )
+    target_include_directories(FilePlaybackPlayerTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(FilePlaybackPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Network Qt5::Test)
+    target_compile_features(FilePlaybackPlayerTest PRIVATE cxx_std_11)
+    add_test(NAME FilePlaybackPlayerTest COMMAND FilePlaybackPlayerTest)
 
     add_executable(VideoWidgetTest
         tests/VideoWidgetTest.cpp
@@ -147,6 +256,7 @@ if(BUILD_TESTING)
         protocol/ClientProtocol.h
         service/UserService.cpp
         service/UserService.h
+        ../../../common/src/media_packet.cc
     )
     target_include_directories(NetworkBehaviorTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -168,6 +278,7 @@ if(BUILD_TESTING)
         protocol/ClientProtocol.h
         service/UserService.cpp
         service/UserService.h
+        ../../../common/src/media_packet.cc
     )
     target_include_directories(UserServiceTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -176,6 +287,24 @@ if(BUILD_TESTING)
     target_link_libraries(UserServiceTest PRIVATE Qt5::Network Qt5::Test)
     target_compile_features(UserServiceTest PRIVATE cxx_std_11)
     add_test(NAME UserServiceTest COMMAND UserServiceTest)
+
+    #[[服务器转发播放器测试：仅构造本地媒体包，验证解码失败与停止后的可重启行为。]]
+    add_executable(ServerStreamPlayerTest
+        tests/ServerStreamPlayerTest.cpp
+        video/ServerStreamPlayer.cpp
+        video/ServerStreamPlayer.h
+        ../src/mock_decoder.cc
+        ../../../common/src/media_packet.cc
+        ../../../common/src/media_reassembler.cc
+    )
+    target_include_directories(ServerStreamPlayerTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(ServerStreamPlayerTest PRIVATE Qt5::Core Qt5::Gui Qt5::Test)
+    target_compile_features(ServerStreamPlayerTest PRIVATE cxx_std_11)
+    add_test(NAME ServerStreamPlayerTest COMMAND ServerStreamPlayerTest)
 
     #[[
     主窗口测试只检查 B 数据页控件和交互状态；通过环境变量将连接目标
@@ -199,6 +328,9 @@ if(BUILD_TESTING)
         ui/LoginWidget.cpp
         ui/LoginWidget.h
         ui/LoginWidget.ui
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
         ui/MonitoringDashboard.cpp
         ui/MonitoringDashboard.h
         video/CameraConfig.cpp
@@ -207,14 +339,46 @@ if(BUILD_TESTING)
         video/RtspPlayer.h
         video/VideoWidget.cpp
         video/VideoWidget.h
+        video/ServerStreamPlayer.cpp
+        video/ServerStreamPlayer.h
+        video/FilePlaybackPlayer.cpp
+        video/FilePlaybackPlayer.h
+        ../src/mock_decoder.cc
+        ../../../common/src/media_packet.cc
+        ../../../common/src/media_reassembler.cc
         network/PtzClient.cpp
         network/PtzClient.h
     )
     target_include_directories(MainWindowTest PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
     )
     target_link_libraries(MainWindowTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
     target_compile_features(MainWindowTest PRIVATE cxx_std_11)
     add_test(NAME MainWindowTest COMMAND MainWindowTest)
+
+    add_executable(RegisterDialogTest
+        tests/RegisterDialogTest.cpp
+        ui/RegisterDialog.cpp
+        ui/RegisterDialog.h
+        ui/RegisterDialog.ui
+        ui/LoginWidget.cpp
+        ui/LoginWidget.h
+        ui/LoginWidget.ui
+        network/TcpClient.cpp
+        network/TcpClient.h
+        protocol/ClientProtocol.cpp
+        protocol/ClientProtocol.h
+        service/UserService.cpp
+        service/UserService.h
+        ../../../common/src/media_packet.cc
+    )
+    target_include_directories(RegisterDialogTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../common/include
+    )
+    target_link_libraries(RegisterDialogTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
+    target_compile_features(RegisterDialogTest PRIVATE cxx_std_11)
+    add_test(NAME RegisterDialogTest COMMAND RegisterDialogTest)
 endif()

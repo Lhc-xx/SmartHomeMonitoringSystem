@@ -64,7 +64,7 @@
 
 - [ ] **Step 4: 验证配置不含秘密**
 
-  运行：`rg -n "admin:admin|192\.168\.2\.(100|160)" client/qt/SmartHomeClient/conf client/qt/SmartHomeClient/tests`
+  运行：`rg -n "rtsp://|password=" client/qt/SmartHomeClient/conf client/qt/SmartHomeClient/tests`
 
   预期：无输出；示例只出现占位符。
 
