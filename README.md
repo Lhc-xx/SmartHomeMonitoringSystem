@@ -3,8 +3,9 @@
 面向小组协同开发的 C/S 智能家居监控系统，MVP 主链路已闭环：
 
 ```text
-Qt 注册/登录 → Server + TLV + MySQL → 设备列表 → 一路实时流经服务器转发
-   → Qt FFmpeg 解码显示 → 云台经服务器转发 → 录像切片 + 元数据索引 + 回放
+Qt 注册/登录 → Server + TLV + MySQL → 设备/录像元数据
+   ├─ Windows 同网段：Qt 直连 RTSP/Web 摄像头并控制云台
+   └─ 服务器具备摄像头路由时：Server 拉流/录像 → Qt 播放与回放
 ```
 
 ## 功能状态
@@ -14,8 +15,9 @@ Qt 注册/登录 → Server + TLV + MySQL → 设备列表 → 一路实时流�
 | 服务器 Reactor + ThreadPool + 配置 + 日志（A） | ✅ |
 | TLV 协议 + 半包/粘包/非法长度（B） | ✅ |
 | MySQL 用户/设备/录像表 + 注册/登录/设备/录像查询（B） | ✅ |
-| FFmpeg 拉流 + 服务器转发 + Qt 解码显示（C） | ✅ |
-| 云台经服务器转发（libcurl + token + JSON）（D） | ✅ |
+| FFmpeg 拉流 + 服务器转发 + Qt 解码显示（C） | ✅（依赖服务器 FFmpeg 与摄像头路由） |
+| Qt 本地 RTSP 预览与本地直连云台（D） | ✅ |
+| 云台经服务器转发（libcurl + token + JSON）（D） | ✅（需配置白名单与摄像头路由） |
 | 录像真 MPEG-TS 切片 + records 索引 + 回放（C） | ✅ |
 
 ## 依赖
@@ -52,9 +54,8 @@ SmartHomeMonitoringSystem/
 │   │   ├── include/  src/  conf/  tests/
 │   │   └── CMakeLists.txt
 │   └── qt/                        # Windows Qt 图形客户端【B/D 界面，C 解码，A 网络层】
-│       ├── include/  src/  forms/  resources/  tests/
-│       ├── conf/client.conf
-│       └── CMakeLists.txt         # 接入 Qt 后补充 find_package(Qt5 ...)
+│       ├── SmartHomeClient/       # Widgets 客户端源码、Designer UI 与测试
+│       └── CMakeLists.txt         # Qt5 Widgets/Network 构建入口
 ├── database/                      # SQL、迁移和种子数据【B】
 │   ├── schema/                    # 完整表结构 SQL
 │   ├── migrations/                # 按版本递增的结构变更 SQL
@@ -122,8 +123,8 @@ make -C server test
 - [x] Server 可读取配置、写日志并稳定启动
 - [x] TLV 可处理正常包、半包、粘包和非法长度
 - [x] Qt 注册、登录和设备列表可用
-- [x] 至少一路实时流经过 Server 到 Qt 显示
-- [x] 云台八方向请求经过 Server 转发
+- [x] 至少一路实时流可由客户端直连显示；服务器转发链路具备独立开关
+- [x] 云台八方向请求可本地直连或经过 Server 转发
 - [x] 录像文件、数据库索引和回放结果对应
 - [x] 服务器、Qt 客户端、Linux C 测试客户端有运行说明
 - [x] 有协议文档、数据库 SQL、测试报告和演示脚本

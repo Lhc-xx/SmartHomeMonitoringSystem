@@ -38,7 +38,12 @@ public:
     explicit PtzClient(QObject *parent = nullptr);
     ~PtzClient() override;
 
-    void setCamera(const QUrl &webUrl, const QString &user, const QString &password);
+    /*
+     * 设置当前球机及其通道。设备网页 API 的 channelId 从 1 开始；
+     * 给定默认值 1 是为了兼容现有单通道配置（RTSP 的 chn=0 对应 API 1）。
+     */
+    void setCamera(const QUrl &webUrl, const QString &user, const QString &password,
+                   int channelId = 1);
     /* 注入转发回调后，控制请求交给服务器转发（参数：cameraUrl, direction, move）。 */
     void setControlForwarder(const std::function<void(const QString &, const QString &, const QString &)> &forwarder);
     void probe();
@@ -47,8 +52,12 @@ public:
 
     bool isReady() const;
 
-    /* 集中定义设备 API 的方向和开始/停止参数，便于离线断言和后续适配。 */
-    static QUrlQuery buildControlQuery(Direction direction, bool start);
+    /*
+     * 集中定义设备 API 的方向和开始/停止参数，便于离线断言和后续适配。
+     * 球机真实接口使用 channelId/value/speed，而不是 direction/move。
+     */
+    static QUrlQuery buildControlQuery(Direction direction, bool start,
+                                       int channelId = 1, int speed = 4);
     static QString directionName(Direction direction);
 
 signals:
@@ -64,6 +73,7 @@ private:
     QUrl endpoint(const QString &path) const;
     void sendControl(const QUrlQuery &query);
     void clearReadyState();
+    static QString deviceValue(Direction direction, bool start);
 
     QNetworkAccessManager *m_manager;
     QNetworkReply *m_probeReply;
@@ -71,6 +81,8 @@ private:
     QUrl m_webUrl;
     QString m_user;
     QString m_password;
+    int m_channelId;
+    int m_ptzSpeed;
     bool m_ready;
     bool m_moveActive;
     std::function<void(const QString &, const QString &, const QString &)> m_controlForwarder;

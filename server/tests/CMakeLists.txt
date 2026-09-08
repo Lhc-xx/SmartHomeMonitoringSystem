@@ -123,6 +123,15 @@ target_compile_features(session_policy_test PRIVATE cxx_std_11)
 target_include_directories(session_policy_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME session_policy_test COMMAND session_policy_test)
 
+#[[流/录像控制请求体解析测试：先锁定截断、尾随字节和大端序边界，再接入 Reactor。]]
+add_executable(stream_request_test
+    stream_request_test.cc
+    ../src/stream_request.cc)
+target_link_libraries(stream_request_test PRIVATE pthread)
+target_compile_features(stream_request_test PRIVATE cxx_std_11)
+target_include_directories(stream_request_test PRIVATE ${SERVER_INCLUDE_DIR})
+add_test(NAME stream_request_test COMMAND stream_request_test)
+
 #[[录像文件写入器 + 目录检查（角色 A）：不依赖 MySQL / log4cpp / epoll，自动加入 CTest。]]
 add_executable(recorder_test
     recorder_test.cc ../src/recorder.cc)
@@ -160,6 +169,7 @@ add_test(NAME mock_media_source_test COMMAND mock_media_source_test)
 add_executable(reactor_test
     reactor_test.cc
     ../src/reactor.cc
+    ../src/stream_request.cc
     ../src/connection.cc
     ../src/thread_pool.cc
     ../src/media/stream_session.cc
@@ -208,12 +218,31 @@ target_compile_features(ts_segmenter_test PRIVATE cxx_std_11)
 target_include_directories(ts_segmenter_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME ts_segmenter_test COMMAND ts_segmenter_test)
 
-#[[端到端集成测试（角色 C）：Mock + FFmpeg + 重组器。需 FFmpeg 开发库，未安装则跳过。]]
+#[[端到端集成测试（角色 C）：Mock + FFmpeg + 重组器。需 FFmpeg 开发库和 CLI。]]
 find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h)
 find_library(AVFORMAT_LIBRARY avformat)
 find_library(AVCODEC_LIBRARY avcodec)
 find_library(AVUTIL_LIBRARY avutil)
-if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIBRARY AND AVCODEC_LIBRARY AND AVUTIL_LIBRARY)
+find_program(FFMPEG_EXECUTABLE NAMES ffmpeg)
+if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIBRARY AND AVCODEC_LIBRARY AND AVUTIL_LIBRARY
+   AND FFMPEG_EXECUTABLE)
+    #[[
+    集成测试原先默认读取源码树中的 data/test_stream.mp4，但该二进制文件不能
+    进入 Git，导致“库已安装、测试仍失败”。配置阶段只记录 ffmpeg 路径，构建
+    阶段在 build 目录生成一个 6 秒的 MPEG-4 测试片段（至少提供 50 个视频包），
+    测试结束后不会污染仓库。
+    ]]
+    set(INTEGRATION_TEST_MEDIA_FILE "${CMAKE_CURRENT_BINARY_DIR}/test_stream.mp4")
+    add_custom_command(
+        OUTPUT "${INTEGRATION_TEST_MEDIA_FILE}"
+        COMMAND "${FFMPEG_EXECUTABLE}" -hide_banner -loglevel error -y
+                -f lavfi -i "testsrc=size=320x240:rate=10"
+                -t 6 -an -c:v mpeg4 -pix_fmt yuv420p
+                "${INTEGRATION_TEST_MEDIA_FILE}"
+        COMMENT "Generating deterministic FFmpeg integration fixture"
+        VERBATIM)
+    add_custom_target(integration_test_fixture
+        DEPENDS "${INTEGRATION_TEST_MEDIA_FILE}")
     add_executable(integration_test
         test_integration.cc
         ../../common/src/media_reassembler.cc
@@ -227,10 +256,11 @@ if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIBRARY AND AVCODEC_LIBRARY AND AVUTIL_LIBRAR
     target_compile_features(integration_test PRIVATE cxx_std_11)
     target_include_directories(integration_test PRIVATE
         ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR} ${FFMPEG_INCLUDE_DIR})
-    add_test(NAME integration_test COMMAND integration_test)
+    add_dependencies(integration_test integration_test_fixture)
+    add_test(NAME integration_test COMMAND integration_test "${INTEGRATION_TEST_MEDIA_FILE}")
     set_tests_properties(integration_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 else()
-    message(WARNING "FFmpeg dev libraries not found, skipping integration_test")
+    message(WARNING "FFmpeg dev libraries or ffmpeg CLI not found, skipping integration_test")
 endif()
 

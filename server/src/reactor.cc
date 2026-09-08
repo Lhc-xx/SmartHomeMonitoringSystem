@@ -6,6 +6,7 @@
 #include "protocol/MessageType.h"
 #include "protocol/AuthProtocol.h"
 #include "session_policy.h"
+#include "stream_request.h"
 #include "AuthHandler.h"
 #include "ResourceHandler.h"
 #include "PtzHandler.h"
@@ -38,19 +39,6 @@
 namespace smart_home {
 
 namespace {
-
-// STREAM_START 请求体：uint16(大端) 长度 + UTF-8 字节的 stream URL。
-// 长度字段不足 / 数据不完整 / 长度为 0 时返回空串（表示使用默认 Mock 源）。
-std::string parseStreamUrl(const std::vector<uint8_t> &value) {
-    if (value.size() < 2) {
-        return std::string();
-    }
-    const uint16_t len = static_cast<uint16_t>((value[0] << 8) | value[1]);
-    if (value.size() < static_cast<size_t>(2) + len) {
-        return std::string();
-    }
-    return std::string(reinterpret_cast<const char *>(value.data() + 2), len);
-}
 
 // 根据 stream URL 选择媒体源：空串或 "mock://" 前缀用 Mock，其余交给 FFmpeg。
 // 未编译 FFmpeg 时始终回退 Mock，保证服务器在无 FFmpeg 环境下仍可构建、可演示。
@@ -464,7 +452,11 @@ std::string formatDbTime(time_t t) {
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_START_RESPONSE);
                 {
                     // 按请求携带的 stream URL 选择源：空 / mock:// → Mock；否则 FFmpeg。
-                    const std::string url = parseStreamUrl(msg.value);
+                    std::string url;
+                    if (!parseStreamStartValue(msg.value, url)) {
+                        errCode = static_cast<int32_t>(ErrorCode::INVALID_PACKET);
+                        break;
+                    }
                     std::unique_ptr<media::MediaSource> source = makeMediaSource(url);
                     auto session = std::make_shared<media::StreamSession>(std::move(source));
                     session->setSink([conn](const std::vector<uint8_t> &bytes) { conn->sendData(bytes); });
@@ -486,6 +478,10 @@ std::string formatDbTime(time_t t) {
             case MessageType::STREAM_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::STREAM_STOP_RESPONSE);
                 {
+                    if (!isEmptyControlValue(msg.value)) {
+                        errCode = static_cast<int32_t>(ErrorCode::INVALID_PACKET);
+                        break;
+                    }
                     std::shared_ptr<media::StreamSession> stream;
                     {
                         std::lock_guard<std::mutex> guard(_streamsMutex);
@@ -509,10 +505,14 @@ std::string formatDbTime(time_t t) {
                 {
                     // 解析 deviceId（8 字节大端 uint64），用于生成录像目录名
                     uint64_t deviceId = 0;
-                    if (msg.value.size() >= 8) {
-                        for (size_t i = 0; i < 8; ++i) {
-                            deviceId = (deviceId << 8) | msg.value[i];
-                        }
+                    if (!parseRecordStartValue(msg.value, deviceId)) {
+                        errCode = static_cast<int32_t>(ErrorCode::INVALID_PACKET);
+                        break;
+                    }
+                    if (deviceId == 0) {
+                        /* 0 不是服务端分配的设备 ID，不能用于拼接录像目录。 */
+                        errCode = static_cast<int32_t>(ErrorCode::INVALID_PARAMETER);
+                        break;
                     }
                     std::string url;
                     {
@@ -550,6 +550,10 @@ std::string formatDbTime(time_t t) {
             case MessageType::RECORD_STOP_REQUEST:
                 resp.type = static_cast<uint16_t>(MessageType::RECORD_STOP_RESPONSE);
                 {
+                    if (!isEmptyControlValue(msg.value)) {
+                        errCode = static_cast<int32_t>(ErrorCode::INVALID_PACKET);
+                        break;
+                    }
                     if (!finalizeRecording(conn->fd())) {
                         errCode = static_cast<int32_t>(ErrorCode::RECORD_NOT_STARTED);
                     }

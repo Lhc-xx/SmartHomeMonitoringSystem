@@ -10,6 +10,8 @@ PtzClient::PtzClient(QObject *parent)
       m_manager(new QNetworkAccessManager(this)),
       m_probeReply(nullptr),
       m_controlReply(nullptr),
+      m_channelId(1),
+      m_ptzSpeed(4),
       m_ready(false),
       m_moveActive(false)
 {
@@ -21,7 +23,8 @@ PtzClient::~PtzClient()
     stopMove();
 }
 
-void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString &password)
+void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString &password,
+                          int channelId)
 {
     if (m_probeReply != nullptr) {
         QNetworkReply *oldReply = m_probeReply;
@@ -40,6 +43,10 @@ void PtzClient::setCamera(const QUrl &webUrl, const QString &user, const QString
     m_webUrl = webUrl;
     m_user = user;
     m_password = password;
+    /* 设备网页 API 的通道号从 1 开始，异常配置统一钳制到第一个通道。 */
+    m_channelId = qMax(1, channelId);
+    /* 切换摄像头后先恢复安全默认值，能力探测成功后再采用设备返回速度。 */
+    m_ptzSpeed = 4;
     m_moveActive = false;
     clearReadyState();
 }
@@ -87,7 +94,7 @@ void PtzClient::startMove(Direction direction)
     if (m_controlForwarder) {
         m_controlForwarder(m_webUrl.toString(), directionName(direction), QStringLiteral("start"));
     } else {
-        sendControl(buildControlQuery(direction, true));
+        sendControl(buildControlQuery(direction, true, m_channelId, m_ptzSpeed));
     }
 }
 
@@ -101,7 +108,7 @@ void PtzClient::stopMove()
         if (m_controlForwarder) {
             m_controlForwarder(m_webUrl.toString(), QStringLiteral("stop"), QStringLiteral("stop"));
         } else {
-            sendControl(buildControlQuery(Direction::Up, false));
+            sendControl(buildControlQuery(Direction::Up, false, m_channelId, m_ptzSpeed));
         }
     }
 }
@@ -111,12 +118,37 @@ bool PtzClient::isReady() const
     return m_ready;
 }
 
-QUrlQuery PtzClient::buildControlQuery(Direction direction, bool start)
+QUrlQuery PtzClient::buildControlQuery(Direction direction, bool start,
+                                       int channelId, int speed)
 {
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("direction"), start ? directionName(direction) : QStringLiteral("stop"));
-    query.addQueryItem(QStringLiteral("move"), start ? QStringLiteral("start") : QStringLiteral("stop"));
+    /*
+     * XSW 球机网页端通过 value 单字母/数字编码方向：
+     * 1/u/2/l/r/3/d/4 分别是八个方向，s 是停止。
+     * channelId 与 speed 必须同时携带，否则设备会返回 502。
+     */
+    query.addQueryItem(QStringLiteral("channelId"), QString::number(qMax(1, channelId)));
+    query.addQueryItem(QStringLiteral("value"), deviceValue(direction, start));
+    query.addQueryItem(QStringLiteral("speed"), QString::number(qMax(1, speed)));
     return query;
+}
+
+QString PtzClient::deviceValue(Direction direction, bool start)
+{
+    if (!start) {
+        return QStringLiteral("s");
+    }
+    switch (direction) {
+    case Direction::UpLeft: return QStringLiteral("1");
+    case Direction::Up: return QStringLiteral("u");
+    case Direction::UpRight: return QStringLiteral("2");
+    case Direction::Left: return QStringLiteral("l");
+    case Direction::Right: return QStringLiteral("r");
+    case Direction::DownLeft: return QStringLiteral("3");
+    case Direction::Down: return QStringLiteral("d");
+    case Direction::DownRight: return QStringLiteral("4");
+    }
+    return QStringLiteral("s");
 }
 
 QString PtzClient::directionName(Direction direction)
@@ -197,6 +229,11 @@ void PtzClient::handleProbeFinished()
     const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
     const QJsonObject object = document.object();
+    const int reportedSpeed = object.value(QStringLiteral("ptzSpeed")).toInt();
+    if (reportedSpeed > 0 && reportedSpeed <= 100) {
+        /* 能力接口返回的速度用于后续每一条控制请求，避免使用失配的默认值。 */
+        m_ptzSpeed = reportedSpeed;
+    }
     const bool supported = statusCode >= 200 && statusCode < 300
         && document.isObject()
         && (object.contains(QStringLiteral("ptzSpeed")) || object.contains(QStringLiteral("steps")));
@@ -220,9 +257,16 @@ void PtzClient::handleControlFinished()
         return;
     }
     m_controlReply = nullptr;
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+    const QJsonObject object = document.object();
+    const bool deviceRejected = document.isObject()
+        && object.contains(QStringLiteral("code"))
+        && object.value(QStringLiteral("code")).toInt() != 0;
     if (reply->error() != QNetworkReply::NoError
-        || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() < 200
-        || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() >= 300) {
+        || statusCode < 200
+        || statusCode >= 300
+        || deviceRejected) {
         emit errorOccurred(QStringLiteral("云台控制请求失败"));
     }
     reply->deleteLater();

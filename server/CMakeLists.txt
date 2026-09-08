@@ -47,6 +47,7 @@ add_executable(smart_home_server
     src/config.cc # 配置模块
     src/thread_pool.cc # 线程池模块
     src/reactor.cc # 网络模块
+    src/stream_request.cc # 流/录像请求体严格解析（纯逻辑边界）
     src/connection.cc # 连接模块
     src/media/stream_session.cc #流会话模块（媒体转发核心）
     src/recorder.cc # 录像文件写入器（角色 A：录像文件生命周期）

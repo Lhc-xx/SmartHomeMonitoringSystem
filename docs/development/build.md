@@ -38,6 +38,14 @@ sudo apt-get install -y mysql-server
 
 录像（角色 C）依赖本机 `ffmpeg` 命令行（`TsRecorder` 用它分段录 MPEG-TS），服务器运行时需保证 `ffmpeg` 在 PATH 中。
 
+服务端录像/转发还必须能够路由到设备的 RTSP 地址。`192.168.2.x` 是摄像头局域网地址，
+如果服务器运行在公网 ECS，需先配置 VPN、专线或端口映射；否则 Qt 客户端仍可在同一局域网
+直连预览和云台，但“服务器转发/服务器录像”会返回明确的流打开失败。
+
+首次联调应为当前登录用户在 `devices` 表创建设备记录（`device_type` 使用 `gun`/`dome`，
+`status` 使用 `0/1`），再点击客户端“设备数据”刷新。录像停止后服务端才会把生成的 TS 片段
+写入 `records` 表；回放时把服务端 `video_path` 映射到 Windows，并设置 `SMARTHOME_RECORD_ROOT`。
+
 ## 二、Qt 客户端（Windows，Qt 5.14.2）
 
 用 Qt Creator 打开 `client/qt/CMakeLists.txt`（会进入 `SmartHomeClient` 子目录）。
@@ -53,10 +61,11 @@ sudo apt-get install -y mysql-server
 
 | 变量 | 作用 |
 | --- | --- |
-| `SMARTHOME_SERVER_IP` / `SMARTHOME_SERVER_PORT` | 覆盖服务器地址/端口 |
+| `SMARTHOME_SERVER_IP` / `SMARTHOME_SERVER_PORT` | 覆盖服务器地址/端口（默认 `8.163.52.40:7777`；如部署到其它服务器请设置变量） |
 | `SMARTHOME_CAMERA_CONFIG` | 摄像头本地配置路径（默认 `conf/cameras.local.conf`） |
 | `SMARTHOME_USE_SERVER_STREAM=1` | 走「服务器转发 → FFmpeg 解码」链路（默认走 RtspPlayer 直连） |
 | `SMARTHOME_STREAM_URL` | 指定服务器推流地址（空则取第一路启用摄像头的 RTSP） |
+| `SMARTHOME_RECORD_ROOT` | 客户端访问服务端录像文件时使用的本地挂载根目录 |
 
 ## 三、运行
 

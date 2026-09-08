@@ -59,6 +59,12 @@ bool expectInvalid(smart_home::PtzHandler &handler,
 int main() {
     smart_home::PtzHandler handler("test-secret", "192.168.2.100,192.168.2.160");
     bool ok = true;
+    ok = ok && smart_home::PtzHttpClient::deviceValue("up-left", "start") == "1";
+    ok = ok && smart_home::PtzHttpClient::deviceValue("up", "start") == "u";
+    ok = ok && smart_home::PtzHttpClient::deviceValue("right", "start") == "r";
+    ok = ok && smart_home::PtzHttpClient::deviceValue("down-right", "start") == "4";
+    ok = ok && smart_home::PtzHttpClient::deviceValue("stop", "stop") == "s";
+    ok = ok && smart_home::PtzHttpClient::deviceValue("stop", "start").empty();
     ok = ok && expectInvalid(handler, "http://127.0.0.1", "up", "start");
     ok = ok && expectInvalid(handler, "http://192.168.2.100@127.0.0.1", "up", "start");
     ok = ok && expectInvalid(handler, "file:///etc/passwd", "up", "start");

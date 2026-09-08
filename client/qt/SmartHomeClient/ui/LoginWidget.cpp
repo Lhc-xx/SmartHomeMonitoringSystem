@@ -97,6 +97,10 @@ LoginWidget::LoginWidget(UserService *userService, QWidget *parent)
                 this, &LoginWidget::onLoginSuccess);
         connect(m_userService, &UserService::loginFailed,
                 this, &LoginWidget::onLoginFailed);
+        connect(m_userService, &UserService::requestWaiting,
+                this, [this](const QString &message) {
+            ui->statusLabel->setText(message);
+        });
     } else {
         ui->registerButton->setEnabled(false);
         ui->statusLabel->setText(QStringLiteral("认证服务初始化失败。"));

@@ -1,13 +1,16 @@
 #include "MainWindow.h"
 
+#include <QAbstractItemView>
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDir>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListView>
+#include <QFileInfo>
 #include <QPushButton>
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -55,12 +58,19 @@ MainWindow::MainWindow(QWidget *parent)
     , m_serverStreamPlayer(nullptr)
     , m_playbackPlayer(nullptr)
     , m_pendingPlayback(false)
+    , m_serverStreamActive(false)
+    , m_serverStreamStarting(false)
+    , m_recordStartPending(false)
+    , m_pendingRecordDeviceId(0)
     , m_dataPage(nullptr)
     , m_deviceModel(nullptr)
     , m_recordModel(nullptr)
     , m_deviceList(nullptr)
+    , m_recordList(nullptr)
     , m_dataStatus(nullptr)
     , m_recordQueryButton(nullptr)
+    , m_playSelectedButton(nullptr)
+    , m_backToPreviewButton(nullptr)
     , m_allTimeCheckBox(nullptr)
     , m_recordStartEdit(nullptr)
     , m_recordEndEdit(nullptr)
@@ -204,6 +214,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_userService, &UserService::deviceListReceived, this, &MainWindow::updateDevices);
     connect(m_userService, &UserService::recordListReceived, this, &MainWindow::updateRecords);
     connect(m_userService, &UserService::requestFailed, this, &MainWindow::showRequestError);
+    connect(m_dashboard, &MonitoringDashboard::requestPreview,
+            this, &MainWindow::showDashboardPage);
     connect(m_dashboard, &MonitoringDashboard::requestDeviceList,
             this, &MainWindow::requestDevices);
     connect(m_dashboard, &MonitoringDashboard::requestRecordList,
@@ -216,11 +228,43 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::handleRecordStop);
     connect(m_userService, &UserService::recordingStarted, this, [this]() {
         m_dashboard->setRecordingActive(true);
-        m_dataStatus->setText(QStringLiteral("录像已开始"));
+        setStatusMessage(QStringLiteral("录像已开始"));
     });
     connect(m_userService, &UserService::recordingStopped, this, [this]() {
         m_dashboard->setRecordingActive(false);
-        m_dataStatus->setText(QStringLiteral("录像已停止"));
+        setStatusMessage(QStringLiteral("录像已停止"));
+    });
+    connect(m_userService, &UserService::streamStarted,
+            this, &MainWindow::handleStreamStarted);
+    connect(m_userService, &UserService::streamStopped,
+            this, &MainWindow::handleStreamStopped);
+
+    /*
+     * TcpClient 的底层错误不能只留在调试输出里：用户操作“设备数据、录像查询
+     * 或开始录像”时，真正需要的是马上知道服务器是否仍在线。这里把连接状态
+     * 同步到工作台底部状态栏和左侧事件列表；UserService 仍负责把具体请求错误
+     * 映射给对应业务，不改变 UI -> Service -> Protocol -> TcpClient 的分层。
+     */
+    connect(m_tcpClient, &TcpClient::connected, this, [this]() {
+        m_dashboard->logEvent(QStringLiteral("服务器 TCP 连接已建立"));
+        setStatusMessage(QStringLiteral("服务器连接已建立，可以进行设备和录像操作。"));
+    });
+    connect(m_tcpClient, &TcpClient::reconnecting, this, [this](int attempt) {
+        const QString message = QStringLiteral("服务器连接断开，正在第 %1 次重连…").arg(attempt);
+        m_dashboard->logEvent(message);
+        setStatusMessage(message);
+    });
+    connect(m_tcpClient, &TcpClient::reconnectFailed, this, [this]() {
+        const QString message = QStringLiteral("服务器重连失败，请检查服务端进程和端口。");
+        m_dashboard->logEvent(message);
+        setStatusMessage(message);
+    });
+    connect(m_tcpClient, &TcpClient::errorOccurred, this, [this](const QString &message) {
+        /* 业务层还会给当前请求发 requestFailed；这里补充连接级可见状态。 */
+        m_dashboard->logEvent(message);
+        if (m_tcpClient != nullptr && !m_tcpClient->isConnected()) {
+            setStatusMessage(message);
+        }
     });
 
     /* 录像回放：ffmpeg.exe 把本地 TS/MP4 解码成 JPEG -> 显示到通道 01。 */
@@ -238,7 +282,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!widgets.isEmpty()) {
             widgets.at(0)->setState(state);
         }
-        m_dataStatus->setText(state);
+        setStatusMessage(state);
     });
     connect(m_playbackPlayer, &FilePlaybackPlayer::errorOccurred, this,
             [this](const QString &reason) {
@@ -246,7 +290,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!widgets.isEmpty()) {
             widgets.at(0)->setState(QStringLiteral("异常"), reason);
         }
-        m_dataStatus->setText(reason);
+        setStatusMessage(reason);
     });
 
     /*
@@ -279,21 +323,30 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_userService, &UserService::mediaFrameReceived,
             m_serverStreamPlayer, &ServerStreamPlayer::onMediaFrame);
     connect(m_tcpClient, &TcpClient::disconnected, this, [this]() {
+        m_serverStreamActive = false;
+        m_serverStreamStarting = false;
+        m_recordStartPending = false;
+        m_pendingRecordDeviceId = 0;
         if (m_serverStreamPlayer != nullptr) {
             m_serverStreamPlayer->stop();
         }
+        setStatusMessage(QStringLiteral("与服务器的连接已断开，设备/录像操作暂不可用。"));
     });
 
     /*
-     * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
-     * 避免把 SSH 隧道地址误当成最终部署配置。实际网络读写仍由 TcpClient 负责。
+     * 默认使用项目远端服务端点；部署到其它 ECS 或局域网时仍可通过环境变量覆盖，
+     * 实际网络读写由 TcpClient 负责。
      */
     const QString serverIp = qEnvironmentVariable(
+        /* Xshell 当前连接的 ECS 公网地址；仍允许部署环境用变量覆盖。 */
         "SMARTHOME_SERVER_IP", QStringLiteral("8.163.52.40"));
     const QByteArray portValue = qgetenv("SMARTHOME_SERVER_PORT");
     const quint16 serverPort = portValue.isEmpty()
         ? static_cast<quint16>(7777)
         : static_cast<quint16>(portValue.toUShort());
+    /* 连接尚未完成前也显示目标，避免用户把等待 TCP 握手误判成按钮失效。 */
+    setStatusMessage(QStringLiteral("正在连接服务器 %1:%2…")
+                     .arg(serverIp).arg(serverPort));
     m_tcpClient->connectServer(serverIp, serverPort);
 }
 
@@ -318,12 +371,19 @@ QWidget *MainWindow::createDataPage()
     buttonLayout->setContentsMargins(16, 10, 16, 10);
     QLabel *toolbarTitle = new QLabel(QStringLiteral("数据操作"), toolbar);
     toolbarTitle->setObjectName(QStringLiteral("toolbarTitle"));
+    m_backToPreviewButton = new QPushButton(QStringLiteral("返回实时预览"), toolbar);
+    m_backToPreviewButton->setObjectName(QStringLiteral("backToPreviewButton"));
     QPushButton *deviceButton = new QPushButton(QStringLiteral("获取设备列表"), toolbar);
     m_recordQueryButton = new QPushButton(QStringLiteral("查询所选设备录像"), toolbar);
+    m_playSelectedButton = new QPushButton(QStringLiteral("回放选中录像"), toolbar);
+    m_playSelectedButton->setObjectName(QStringLiteral("playSelectedRecordButton"));
+    m_playSelectedButton->setEnabled(false);
     buttonLayout->addWidget(toolbarTitle);
     buttonLayout->addSpacing(14);
+    buttonLayout->addWidget(m_backToPreviewButton);
     buttonLayout->addWidget(deviceButton);
     buttonLayout->addWidget(m_recordQueryButton);
+    buttonLayout->addWidget(m_playSelectedButton);
     buttonLayout->addStretch();
     rootLayout->addWidget(toolbar);
 
@@ -374,17 +434,18 @@ QWidget *MainWindow::createDataPage()
     QSplitter *splitter = new QSplitter(page);
     m_deviceList = new QListView(splitter);
     m_deviceList->setObjectName(QStringLiteral("deviceList"));
-    QListView *recordList = new QListView(splitter);
-    recordList->setObjectName(QStringLiteral("recordList"));
+    m_recordList = new QListView(splitter);
+    m_recordList->setObjectName(QStringLiteral("recordList"));
+    m_recordList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_deviceModel = new DeviceModel(this);
     m_recordModel = new RecordModel(this);
     m_deviceList->setModel(m_deviceModel);
-    recordList->setModel(m_recordModel);
+    m_recordList->setModel(m_recordModel);
     splitter->setHandleWidth(8);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 1);
     splitter->addWidget(m_deviceList);
-    splitter->addWidget(recordList);
+    splitter->addWidget(m_recordList);
     rootLayout->addWidget(splitter, 1);
 
     m_dataStatus = new QLabel(QStringLiteral("登录后可获取设备和录像元数据。"), page);
@@ -392,25 +453,190 @@ QWidget *MainWindow::createDataPage()
     m_dataStatus->setWordWrap(true);
     rootLayout->addWidget(m_dataStatus);
 
+    connect(m_backToPreviewButton, &QPushButton::clicked,
+            this, &MainWindow::showDashboardPage);
     connect(deviceButton, &QPushButton::clicked, this, &MainWindow::requestDevices);
     connect(m_recordQueryButton, &QPushButton::clicked, this, &MainWindow::requestRecords);
+    connect(m_playSelectedButton, &QPushButton::clicked,
+            this, &MainWindow::playSelectedRecord);
+    connect(m_recordList, &QListView::doubleClicked,
+            this, [this](const QModelIndex &index) {
+        if (index.isValid()) {
+            playRecordAt(index.row());
+        }
+    });
     return page;
+}
+
+void MainWindow::showDashboardPage()
+{
+    /* 工作台和元数据页共用 MainWindow 中央区域，切换时明确隐藏旧页面。 */
+    if (m_dataPage != nullptr) {
+        m_dataPage->hide();
+    }
+    if (m_dashboard != nullptr) {
+        setCentralWidget(m_dashboard);
+        m_dashboard->show();
+    }
+}
+
+void MainWindow::showMetadataPage()
+{
+    /* 设备/录像列表必须放到用户当前可见的中央页面，而不是隐藏后台控件。 */
+    if (m_dashboard != nullptr) {
+        m_dashboard->hide();
+    }
+    if (m_dataPage != nullptr) {
+        setCentralWidget(m_dataPage);
+        m_dataPage->show();
+    }
+}
+
+void MainWindow::setStatusMessage(const QString &message)
+{
+    if (m_dataStatus != nullptr) {
+        m_dataStatus->setText(message);
+    }
+    if (m_dashboard != nullptr) {
+        m_dashboard->setStatusMessage(message);
+    }
+}
+
+QString MainWindow::resolveRecordFilePath(const QString &recordPath,
+                                          const QString &mountedRecordRoot)
+{
+    const QString original = recordPath.trimmed();
+    if (original.isEmpty() || mountedRecordRoot.trimmed().isEmpty()) {
+        return original;
+    }
+
+    /* 已经是客户端可读的绝对路径时不再套用根目录。 */
+    const QFileInfo directInfo(original);
+    if (directInfo.exists() && directInfo.isFile()) {
+        return directInfo.absoluteFilePath();
+    }
+
+    const QString normalized = QDir::fromNativeSeparators(original);
+    QString relative;
+    const QString dataMarker = QStringLiteral("/data/");
+    const int markerIndex = normalized.indexOf(dataMarker, 0, Qt::CaseInsensitive);
+    if (markerIndex >= 0) {
+        relative = normalized.mid(markerIndex + dataMarker.size());
+    } else if (normalized.startsWith(QStringLiteral("./data/"), Qt::CaseInsensitive)) {
+        relative = normalized.mid(7);
+    } else if (normalized.startsWith(QStringLiteral("data/"), Qt::CaseInsensitive)) {
+        relative = normalized.mid(5);
+    } else {
+        relative = normalized;
+    }
+    while (relative.startsWith(QLatin1Char('/'))) {
+        relative.remove(0, 1);
+    }
+
+    const QString root = QDir::fromNativeSeparators(mountedRecordRoot.trimmed());
+    return QDir(root).filePath(relative);
+}
+
+QString MainWindow::resolveCameraConfigPath(const QString &configuredPath,
+                                            const QString &applicationDir)
+{
+    const QString explicitPath = configuredPath.trimmed();
+    if (!explicitPath.isEmpty()) {
+        /* 显式路径拥有最高优先级，即使文件不存在也返回它供上层给出准确提示。 */
+        return explicitPath;
+    }
+
+    const QDir appDir(applicationDir.trimmed());
+    const QStringList candidates = QStringList()
+        /* 直接运行 source/SmartHomeClient/SmartHomeClient.exe 的场景。 */
+        << appDir.filePath(QStringLiteral("conf/cameras.local.conf"))
+        /* Qt Creator 常把 exe 放在 client/qt/build-*，配置仍在 SmartHomeClient/conf。 */
+        << appDir.filePath(QStringLiteral("../SmartHomeClient/conf/cameras.local.conf"))
+        << appDir.filePath(QStringLiteral("../conf/cameras.local.conf"))
+        /* 从仓库根目录或其它启动目录运行时的相对路径兜底。 */
+        << QDir::current().filePath(QStringLiteral("client/qt/SmartHomeClient/conf/cameras.local.conf"))
+        << QDir::current().filePath(QStringLiteral("SmartHomeClient/conf/cameras.local.conf"));
+
+    for (const QString &candidate : candidates) {
+        const QFileInfo info(candidate);
+        if (info.exists() && info.isFile()) {
+            return info.absoluteFilePath();
+        }
+    }
+
+    /* 找不到时仍返回最符合运行目录约定的路径，让调用方显示缺失文件位置。 */
+    return candidates.isEmpty() ? QString() : QFileInfo(candidates.first()).absoluteFilePath();
+}
+
+QString MainWindow::configuredFfmpegPath() const
+{
+    for (const CameraConfig &config : m_cameraConfigs) {
+        if (!config.ffmpegPath.trimmed().isEmpty()) {
+            return config.ffmpegPath.trimmed();
+        }
+    }
+    return QString();
+}
+
+void MainWindow::selectDeviceInDataPage(quint64 deviceId)
+{
+    if (m_deviceList == nullptr || m_deviceModel == nullptr || deviceId == 0U) {
+        return;
+    }
+    for (int row = 0; row < m_deviceModel->rowCount(); ++row) {
+        if (m_deviceModel->deviceIdAt(row) == deviceId) {
+            m_deviceList->setCurrentIndex(m_deviceModel->index(row, 0));
+            return;
+        }
+    }
+}
+
+void MainWindow::playSelectedRecord()
+{
+    if (m_recordList == nullptr || !m_recordList->currentIndex().isValid()) {
+        setStatusMessage(QStringLiteral("请先在右侧选择一条录像记录。"));
+        return;
+    }
+    playRecordAt(m_recordList->currentIndex().row());
+}
+
+void MainWindow::playRecordAt(int row)
+{
+    if (row < 0 || row >= m_records.size() || m_playbackPlayer == nullptr) {
+        setStatusMessage(QStringLiteral("没有可回放的录像。"));
+        return;
+    }
+
+    const QString serverPath = m_records.at(row).filePath;
+    const QString mountedRoot = qEnvironmentVariable("SMARTHOME_RECORD_ROOT").trimmed();
+    const QString localPath = resolveRecordFilePath(serverPath, mountedRoot);
+    const QFileInfo fileInfo(localPath);
+    if (!fileInfo.exists() || !fileInfo.isFile() || !fileInfo.isReadable()) {
+        if (mountedRoot.isEmpty()) {
+            setStatusMessage(QStringLiteral(
+                "录像文件位于服务端：%1；请将服务端 data 目录挂载到本机，并设置 SMARTHOME_RECORD_ROOT。")
+                .arg(serverPath));
+        } else {
+            setStatusMessage(QStringLiteral("录像映射目录中找不到文件：%1").arg(localPath));
+        }
+        return;
+    }
+
+    showDashboardPage();
+    m_playbackPlayer->play(localPath, configuredFfmpegPath());
 }
 
 void MainWindow::showDataPage(quint64 userId)
 {
-    /* 登录成功仅切换到元数据页；用户可随后主动发起每个数据请求。 */
-    m_dataPage->hide();
-    setCentralWidget(m_dashboard);
-    m_dashboard->show();
+    /* 登录成功先进入监控工作台；设备/录像按钮再切换到可见元数据页。 */
+    showDashboardPage();
 
-    QString configPath = qEnvironmentVariable("SMARTHOME_CAMERA_CONFIG");
-    if (configPath.isEmpty()) {
-        configPath = QCoreApplication::applicationDirPath()
-            + QStringLiteral("/conf/cameras.local.conf");
-    }
+    const QString configPath = resolveCameraConfigPath(
+        qEnvironmentVariable("SMARTHOME_CAMERA_CONFIG"),
+        QCoreApplication::applicationDirPath());
     QString configError;
     const QList<CameraConfig> configs = loadCameraConfigs(configPath, &configError);
+    m_cameraConfigs = configs;
     m_dashboard->setCameraConfigs(configs);
     const bool useServerStream = qEnvironmentVariableIntValue("SMARTHOME_USE_SERVER_STREAM") != 0;
     if (!useServerStream) {
@@ -435,13 +661,14 @@ void MainWindow::showDataPage(quint64 userId)
         }
         if (m_serverStreamPlayer != nullptr) {
             m_serverStreamPlayer->start();
+            m_serverStreamStarting = true;
             m_userService->startStream(streamUrl);
         }
     }
     if (!configError.isEmpty()) {
-        m_dataStatus->setText(QStringLiteral("用户 %1 已登录；%2").arg(QString::number(userId), configError));
+        setStatusMessage(QStringLiteral("用户 %1 已登录；%2").arg(QString::number(userId), configError));
     } else {
-        m_dataStatus->setText(QStringLiteral("用户 %1 已登录，监控工作台已启动").arg(userId));
+        setStatusMessage(QStringLiteral("用户 %1 已登录，监控工作台已启动").arg(userId));
     }
     /* 登录成功后自动请求设备列表，设备树和旧数据模型同时获得服务端数据。 */
     m_userService->requestDeviceList();
@@ -449,15 +676,21 @@ void MainWindow::showDataPage(quint64 userId)
 
 void MainWindow::requestDevices()
 {
-    m_dataStatus->setText(QStringLiteral("正在请求设备列表…"));
+    showMetadataPage();
+    setStatusMessage(QStringLiteral("正在请求设备列表…"));
     m_userService->requestDeviceList();
 }
 
 void MainWindow::requestRecords()
 {
-    const QModelIndex selected = m_deviceList->currentIndex();
+    QModelIndex selected = m_deviceList->currentIndex();
+    if (!selected.isValid() && m_deviceModel->rowCount() > 0) {
+        /* 刷新后默认选中第一台设备，按钮无需用户重复点击才能产生请求。 */
+        selected = m_deviceModel->index(0, 0);
+        m_deviceList->setCurrentIndex(selected);
+    }
     if (!selected.isValid()) {
-        m_dataStatus->setText(QStringLiteral("请先在左侧选择一个设备。"));
+        setStatusMessage(QStringLiteral("当前没有可查询的服务端设备。"));
         return;
     }
     requestRecordsForDevice(m_deviceModel->deviceIdAt(selected.row()));
@@ -471,14 +704,18 @@ void MainWindow::requestRecordsForDevice(quint64 deviceId)
      * 这样既修复工作台查询，又保留原有 B 数据页按钮行为。
      */
     if (deviceId == 0) {
-        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        m_pendingPlayback = false;
+        setStatusMessage(QStringLiteral("服务端没有可用设备，请先在服务器数据库创建设备并刷新设备数据。"));
         return;
     }
+    showMetadataPage();
+    selectDeviceInDataPage(deviceId);
     QString startTime;
     QString endTime;
     if (!m_allTimeCheckBox->isChecked()) {
         if (m_recordStartEdit->dateTime() > m_recordEndEdit->dateTime()) {
-            m_dataStatus->setText(QStringLiteral("开始时间不能晚于结束时间。"));
+            m_pendingPlayback = false;
+            setStatusMessage(QStringLiteral("开始时间不能晚于结束时间。"));
             return;
         }
         const QString wireFormat = QStringLiteral("yyyy-MM-dd HH:mm:ss");
@@ -487,7 +724,7 @@ void MainWindow::requestRecordsForDevice(quint64 deviceId)
     }
 
     /* 空字符串明确表达全部时间；指定范围则使用服务端可直接比较的固定格式。 */
-    m_dataStatus->setText(QStringLiteral("正在请求录像元数据…"));
+    setStatusMessage(QStringLiteral("正在请求录像元数据…"));
     m_userService->requestRecordQuery(deviceId, startTime, endTime);
 }
 
@@ -495,22 +732,40 @@ void MainWindow::updateDevices(const QList<ClientProtocol::DeviceInfo> &devices)
 {
     m_deviceModel->setDevices(devices);
     m_dashboard->setDevices(devices);
-    m_dataStatus->setText(QStringLiteral("已收到 %1 个设备。").arg(devices.size()));
+    /* 设备集合变化后清空旧录像，避免把上一台设备的记录误显示给新设备。 */
+    m_records.clear();
+    m_recordModel->setRecords(QList<ClientProtocol::RecordInfo>());
+    if (m_deviceList != nullptr && !devices.isEmpty()) {
+        m_deviceList->setCurrentIndex(m_deviceModel->index(0, 0));
+    }
+    if (m_playSelectedButton != nullptr) {
+        m_playSelectedButton->setEnabled(false);
+    }
+    m_dashboard->logEvent(QStringLiteral("设备列表已更新，共 %1 台").arg(devices.size()));
+    setStatusMessage(QStringLiteral("已收到 %1 个设备。").arg(devices.size()));
 }
 
 void MainWindow::updateRecords(const QList<ClientProtocol::RecordInfo> &records)
 {
     m_records = records;
     m_recordModel->setRecords(records);
-    m_dataStatus->setText(QStringLiteral("已收到 %1 条录像元数据。").arg(records.size()));
+    if (m_recordList != nullptr) {
+        m_recordList->setCurrentIndex(records.isEmpty()
+            ? QModelIndex() : m_recordModel->index(0, 0));
+    }
+    if (m_playSelectedButton != nullptr) {
+        m_playSelectedButton->setEnabled(!records.isEmpty());
+    }
+    m_dashboard->logEvent(QStringLiteral("录像查询完成，共 %1 条记录").arg(records.size()));
+    setStatusMessage(QStringLiteral("已收到 %1 条录像元数据。").arg(records.size()));
 
     /* 回放请求先触发一次查询，拿到结果后播放最近一条录像。 */
     if (m_pendingPlayback) {
         m_pendingPlayback = false;
         if (!m_records.isEmpty() && m_playbackPlayer != nullptr) {
-            m_playbackPlayer->play(m_records.first().filePath);
+            playRecordAt(0);
         } else {
-            m_dataStatus->setText(QStringLiteral("没有可回放的录像。"));
+            setStatusMessage(QStringLiteral("没有可回放的录像。"));
         }
     }
 }
@@ -518,7 +773,7 @@ void MainWindow::updateRecords(const QList<ClientProtocol::RecordInfo> &records)
 void MainWindow::handlePlaybackRequest(quint64 deviceId)
 {
     if (deviceId == 0) {
-        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        setStatusMessage(QStringLiteral("服务端没有可用设备，请先在服务器数据库创建设备并刷新设备数据。"));
         return;
     }
     m_pendingPlayback = true;
@@ -527,23 +782,94 @@ void MainWindow::handlePlaybackRequest(quint64 deviceId)
 
 void MainWindow::showRequestError(const QString &reason)
 {
-    m_dataStatus->setText(reason);
+    /* 建流失败时取消等待录像，避免下一次无关请求误触发录像。 */
+    m_pendingPlayback = false;
+    if (m_recordStartPending) {
+        m_recordStartPending = false;
+        m_pendingRecordDeviceId = 0;
+    }
+    if (m_serverStreamStarting) {
+        m_serverStreamStarting = false;
+    }
+    if (m_dashboard != nullptr) {
+        /* 工作台是登录后的主页面，必须把失败原因写入当前可见事件面板。 */
+        m_dashboard->logEvent(reason);
+    }
+    setStatusMessage(reason);
 }
 
 void MainWindow::handleRecordStart(quint64 deviceId)
 {
     if (deviceId == 0) {
-        m_dataStatus->setText(QStringLiteral("请先在设备列表中选择一个服务端设备。"));
+        setStatusMessage(QStringLiteral("服务端没有可用设备，请先在服务器数据库创建设备并刷新设备数据。"));
         return;
     }
-    m_dataStatus->setText(QStringLiteral("正在启动录像…"));
-    m_userService->startRecording(deviceId);
+    if (m_recordStartPending) {
+        setStatusMessage(QStringLiteral("正在建立录像流，请稍候…"));
+        return;
+    }
+    if (m_serverStreamStarting) {
+        /*
+         * STREAM_START 是异步请求。用户在网络响应到达前重复点击“开始录像”时，
+         * 不能再创建第二个服务端流，否则后续的 RECORD_START 会与请求状态错位。
+         * 这里保留第一次请求并给出明确提示，待 handleStreamStarted() 继续原流程。
+         */
+        setStatusMessage(QStringLiteral("正在建立服务端流，请稍候…"));
+        return;
+    }
+
+    if (m_serverStreamActive) {
+        setStatusMessage(QStringLiteral("正在启动录像…"));
+        m_userService->startRecording(deviceId);
+        return;
+    }
+
+    /*
+     * 服务端 RECORD_START 只能绑定已经存在的同连接 stream session。
+     * 客户端默认直连 RTSP 时，这里先用当前摄像头地址建立服务端流，
+     * 收到 STREAM_START_RESPONSE 后再发送 RECORD_START，避免必然得到
+     * STREAM_NOT_FOUND。
+     */
+    const QString streamUrl = m_dashboard->selectedCameraRtspUrl();
+    if (streamUrl.isEmpty()) {
+        setStatusMessage(QStringLiteral("没有可用于服务端录像的摄像头 RTSP 地址。"));
+        return;
+    }
+    m_recordStartPending = true;
+    m_pendingRecordDeviceId = deviceId;
+    m_serverStreamStarting = true;
+    setStatusMessage(QStringLiteral("正在建立服务端录像流…"));
+    m_userService->startStream(streamUrl);
 }
 
 void MainWindow::handleRecordStop()
 {
-    m_dataStatus->setText(QStringLiteral("正在停止录像…"));
+    setStatusMessage(QStringLiteral("正在停止录像…"));
     m_userService->stopRecording();
+}
+
+void MainWindow::handleStreamStarted()
+{
+    m_serverStreamStarting = false;
+    m_serverStreamActive = true;
+    if (m_recordStartPending && m_pendingRecordDeviceId != 0U) {
+        const quint64 deviceId = m_pendingRecordDeviceId;
+        m_recordStartPending = false;
+        m_pendingRecordDeviceId = 0;
+        setStatusMessage(QStringLiteral("服务端流已建立，正在启动录像…"));
+        m_userService->startRecording(deviceId);
+    } else {
+        setStatusMessage(QStringLiteral("服务端实时流已建立。"));
+    }
+}
+
+void MainWindow::handleStreamStopped()
+{
+    m_serverStreamStarting = false;
+    m_serverStreamActive = false;
+    m_recordStartPending = false;
+    m_pendingRecordDeviceId = 0;
+    setStatusMessage(QStringLiteral("服务端实时流已停止。"));
 }
 
 MainWindow::~MainWindow()

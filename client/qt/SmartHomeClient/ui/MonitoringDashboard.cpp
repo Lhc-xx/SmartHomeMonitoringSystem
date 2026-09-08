@@ -8,6 +8,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -19,6 +20,24 @@
 #endif
 
 namespace {
+
+/*
+ * 服务端旧版本可能把设备状态直接编码成 0/1；工作台统一转换成可读文本，
+ * 这样即使服务器尚未更新，界面也不会出现难以理解的“设备 · 0”。
+ */
+QString displayDeviceStatus(const QString &status)
+{
+    const QString normalized = status.trimmed().toLower();
+    if (normalized == QStringLiteral("1") || normalized == QStringLiteral("online")
+        || normalized == QStringLiteral("true")) {
+        return QStringLiteral("在线");
+    }
+    if (normalized == QStringLiteral("0") || normalized == QStringLiteral("offline")
+        || normalized == QStringLiteral("false")) {
+        return QStringLiteral("离线");
+    }
+    return status.trimmed().isEmpty() ? QStringLiteral("未知") : status.trimmed();
+}
 
 QPushButton *makeNavButton(const QString &text, QWidget *parent)
 {
@@ -195,6 +214,7 @@ void MonitoringDashboard::buildUi()
 
     connect(previewButton, &QPushButton::clicked, this, [this]() {
         startPreview();
+        emit requestPreview();
         appendEvent(QStringLiteral("已切换到实时预览"));
     });
     connect(recordButton, &QPushButton::clicked, this, [this]() {
@@ -358,15 +378,67 @@ void MonitoringDashboard::setDevices(const QList<ClientProtocol::DeviceInfo> &de
     if (serverRoot == nullptr) {
         serverRoot = new QTreeWidgetItem(m_deviceTree, QStringList() << QStringLiteral("服务端设备"));
     }
-    serverRoot->takeChildren();
+    /*
+     * takeChildren() 只把指针摘下，并不会释放 QTreeWidgetItem。
+     * 刷新设备列表频繁发生在登录和手工刷新之后，必须显式删除旧项，
+     * 否则每次刷新都会泄漏一批树节点，并让旧设备残留在内存中。
+     * 刷新期间暂时屏蔽选择信号，避免删除当前项时误触发云台切换。
+     */
+    const QSignalBlocker blocker(m_deviceTree);
+    qDeleteAll(serverRoot->takeChildren());
     for (const ClientProtocol::DeviceInfo &device : devices) {
         QTreeWidgetItem *item = new QTreeWidgetItem(serverRoot,
-            QStringList() << QStringLiteral("%1 · %2").arg(device.name, device.status));
+            QStringList() << QStringLiteral("%1 · %2")
+                .arg(device.name, displayDeviceStatus(device.status)));
         item->setData(0, Qt::UserRole, device.type);
         item->setData(0, Qt::UserRole + 1, QVariant::fromValue<qulonglong>(device.id));
     }
     serverRoot->setExpanded(true);
     m_statusLabel->setText(QStringLiteral("已同步 %1 个服务端设备").arg(devices.size()));
+}
+
+void MonitoringDashboard::setStatusMessage(const QString &message)
+{
+    /*
+     * MainWindow 的数据页状态标签在工作台模式下不可见，
+     * 因此业务错误必须同步落到工作台底部状态栏，避免出现“按钮无反应”。
+     */
+    if (m_statusLabel != nullptr) {
+        m_statusLabel->setText(message);
+    }
+}
+
+void MonitoringDashboard::logEvent(const QString &message)
+{
+    /* 统一复用相邻事件去重和长度限制，调用方无需直接接触 QListWidget。 */
+    appendEvent(message);
+}
+
+QString MonitoringDashboard::selectedCameraRtspUrl() const
+{
+    const QTreeWidgetItem *item = m_deviceTree == nullptr ? nullptr : m_deviceTree->currentItem();
+    QString localType;
+    if (item == m_gunItem) {
+        localType = QStringLiteral("gun");
+    } else if (item == m_domeItem) {
+        localType = QStringLiteral("dome");
+    } else if (item != nullptr && item->parent() != nullptr) {
+        /* 服务端设备子项同样保存 type，录像启动不能误用第一路摄像头。 */
+        localType = item->data(0, Qt::UserRole).toString().trimmed().toLower();
+        if (localType == QStringLiteral("camera")) {
+            /* 泛型 camera 设备没有本地类型，只能走配置顺序兜底。 */
+            localType.clear();
+        }
+    }
+
+    /* 服务端设备子项没有直接保存 RTSP，按类型匹配本地配置。 */
+    for (const CameraConfig &config : m_cameraConfigs) {
+        if (config.enabled && !config.rtspUrl.isEmpty()
+            && (localType.isEmpty() || config.type == localType)) {
+            return config.rtspUrl;
+        }
+    }
+    return QString();
 }
 
 void MonitoringDashboard::setRecordingActive(bool active)
@@ -556,11 +628,52 @@ quint64 MonitoringDashboard::selectedServerDeviceId() const
         return 0;
     }
     QTreeWidgetItem *item = m_deviceTree->currentItem();
-    if (item == nullptr || item->parent() == nullptr) {
+    if (item != nullptr && item->parent() != nullptr) {
+        const QVariant idValue = item->data(0, Qt::UserRole + 1);
+        if (idValue.isValid() && idValue.toULongLong() != 0U) {
+            return idValue.toULongLong();
+        }
+    }
+
+    /*
+     * 工作台默认选中的是本地枪机/球机入口，它们只负责预览和云台，
+     * 没有协议层 deviceId。此时按类型匹配服务端设备，匹配不到再使用
+     * 首个归属设备，保证查询/回放/录像不会把 0 当成真实设备发送。
+     */
+    const QString localType = item == m_domeItem ? QStringLiteral("dome")
+        : (item == m_gunItem ? QStringLiteral("gun") : QString());
+    return fallbackServerDeviceId(localType);
+}
+
+quint64 MonitoringDashboard::fallbackServerDeviceId(const QString &localType) const
+{
+    if (m_devices.isEmpty()) {
         return 0;
     }
-    const QVariant idValue = item->data(0, Qt::UserRole + 1);
-    return idValue.isValid() ? idValue.toULongLong() : 0;
+
+    for (const CameraConfig &config : m_cameraConfigs) {
+        if (config.type != localType || config.name.isEmpty()) {
+            continue;
+        }
+        for (const ClientProtocol::DeviceInfo &device : m_devices) {
+            if (device.name == config.name && device.id != 0U) {
+                return device.id;
+            }
+        }
+    }
+
+    for (const ClientProtocol::DeviceInfo &device : m_devices) {
+        const QString type = device.type.trimmed().toLower();
+        if (device.id != 0U && !localType.isEmpty()
+            && (type == localType || (localType == QStringLiteral("dome")
+                                      && (type == QStringLiteral("ptz")
+                                          || type == QStringLiteral("ball"))))) {
+            return device.id;
+        }
+    }
+
+    /* 服务端设备列表已经过 userId 归属校验，首项是安全的兜底选择。 */
+    return m_devices.first().id;
 }
 
 int MonitoringDashboard::slotForConfig(const CameraConfig &config, QList<bool> &usedSlots) const

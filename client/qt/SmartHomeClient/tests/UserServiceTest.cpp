@@ -20,6 +20,8 @@ class UserServiceTest : public QObject
     Q_OBJECT
 
 private slots:
+    /* 连接仍在异步建立时点击登录，请求必须等待连接成功后自动发送。 */
+    void queuesLoginUntilTcpConnected();
     /* 登录连接断开后，旧 userId/token 必须失效，防止重连时误用旧会话。 */
     void disconnectClearsAuthenticatedState();
     /* 认证请求必须串行排队，快速 PTZ 松开产生的 stop 不能被丢弃。 */
@@ -45,6 +47,36 @@ void UserServiceTest::appendUint16BE(QByteArray &buffer, quint16 value)
 {
     buffer.append(static_cast<char>((value >> 8) & 0xFFU));
     buffer.append(static_cast<char>(value & 0xFFU));
+}
+
+void UserServiceTest::queuesLoginUntilTcpConnected()
+{
+    QTcpServer localServer;
+    QVERIFY2(localServer.listen(QHostAddress::LocalHost, 0),
+             "本机临时 TCP 服务监听失败");
+
+    TcpClient tcpClient;
+    UserService service(&tcpClient);
+    QSignalSpy waitingSpy(&service, &UserService::requestWaiting);
+    QSignalSpy loginSuccessSpy(&service, &UserService::loginSuccess);
+
+    /* 故意先提交登录，再开始连接，模拟用户启动后立即点击登录。 */
+    service.loginUser(QStringLiteral("queued-user"), QStringLiteral("queued-password"));
+    QTRY_COMPARE_WITH_TIMEOUT(waitingSpy.count(), 1, 500);
+    QCOMPARE(loginSuccessSpy.count(), 0);
+
+    tcpClient.connectServer(QStringLiteral("127.0.0.1"), localServer.serverPort());
+    QTRY_VERIFY_WITH_TIMEOUT(localServer.hasPendingConnections(), 2000);
+    QTcpSocket *peer = localServer.nextPendingConnection();
+    QVERIFY(peer != nullptr);
+
+    QByteArray requestBytes;
+    ClientProtocol::Packet request;
+    QVERIFY(waitForPacket(peer, requestBytes, request, 2000));
+    QCOMPARE(request.type, ClientProtocol::LoginRequest);
+    peer->write(makeLoginResponse(request.requestId));
+    peer->flush();
+    QTRY_COMPARE_WITH_TIMEOUT(loginSuccessSpy.count(), 1, 2000);
 }
 
 void UserServiceTest::appendUint32BE(QByteArray &buffer, quint32 value)

@@ -21,7 +21,31 @@ size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp) {
 
 } // namespace
 
-PtzHttpClient::PtzHttpClient(const std::string &secret) : _secret(secret) {}
+PtzHttpClient::PtzHttpClient(const std::string &secret)
+    : _secret(secret), _ptzSpeed(4) {}
+
+std::string PtzHttpClient::deviceValue(const std::string &direction,
+                                       const std::string &move) {
+    /*
+     * 设备网页端 JS 使用以下 value：斜向为数字，正向为字母，停止为 s。
+     * move 仍由 TLV 协议保留 start/stop 语义，这里只负责边界映射。
+     */
+    if (move == "stop" && direction == "stop") {
+        return "s";
+    }
+    if (move != "start") {
+        return std::string();
+    }
+    if (direction == "up-left") return "1";
+    if (direction == "up") return "u";
+    if (direction == "up-right") return "2";
+    if (direction == "left") return "l";
+    if (direction == "right") return "r";
+    if (direction == "down-left") return "3";
+    if (direction == "down") return "d";
+    if (direction == "down-right") return "4";
+    return std::string();
+}
 
 std::string PtzHttpClient::md5Hex(const std::string &data) {
     unsigned char digest[16] = {0};
@@ -86,17 +110,24 @@ bool PtzHttpClient::httpGet(const std::string &url, std::string &outBody) {
 std::string PtzHttpClient::buildControlUrl(const std::string &baseUrl,
                                            const std::string &direction,
                                            const std::string &move) const {
+    const std::string value = deviceValue(direction, move);
+    if (value.empty()) {
+        return std::string();
+    }
+
     const long t = static_cast<long>(time(nullptr));
     std::map<std::string, std::string> params;
-    params["direction"] = direction;
-    params["move"] = move;
+    params["channelId"] = "1";
+    params["value"] = value;
+    params["speed"] = std::to_string(_ptzSpeed);
     const std::string token = buildToken(params, _secret, t);
 
     std::string url = baseUrl;
     if (!url.empty() && url.back() == '/') {
         url.pop_back();
     }
-    url += "/api/ptz/control?direction=" + direction + "&move=" + move
+    url += "/api/ptz/control?channelId=1&value=" + value
+        + "&speed=" + std::to_string(_ptzSpeed)
         + "&t=" + std::to_string(t) + "&token=" + token;
     return url;
 }
@@ -116,16 +147,41 @@ bool PtzHttpClient::probe(const std::string &baseUrl) {
     if (root == nullptr) {
         return false;
     }
-    const bool supported = cJSON_GetObjectItem(root, "ptzSpeed") != nullptr
-        || cJSON_GetObjectItem(root, "steps") != nullptr;
+    const cJSON *speed = cJSON_GetObjectItem(root, "ptzSpeed");
+    if (cJSON_IsNumber(speed) && speed->valueint >= 1 && speed->valueint <= 100) {
+        _ptzSpeed = speed->valueint;
+    }
+    const cJSON *code = cJSON_GetObjectItem(root, "code");
+    const bool deviceRejected = cJSON_IsNumber(code) && code->valueint != 0;
+    const bool supported = !deviceRejected
+        && (speed != nullptr || cJSON_GetObjectItem(root, "steps") != nullptr);
     cJSON_Delete(root);
     return supported;
 }
 
 bool PtzHttpClient::control(const std::string &baseUrl, const std::string &direction,
                             const std::string &move) {
+    const std::string url = buildControlUrl(baseUrl, direction, move);
+    if (url.empty()) {
+        return false;
+    }
     std::string body;
-    return httpGet(buildControlUrl(baseUrl, direction, move), body);
+    if (!httpGet(url, body)) {
+        return false;
+    }
+
+    /* HTTP 200 也可能携带设备业务错误，不能仅按状态码判定成功。 */
+    if (body.empty()) {
+        return true;
+    }
+    cJSON *root = cJSON_Parse(body.c_str());
+    if (root == nullptr) {
+        return false;
+    }
+    const cJSON *code = cJSON_GetObjectItem(root, "code");
+    const bool rejected = cJSON_IsNumber(code) && code->valueint != 0;
+    cJSON_Delete(root);
+    return !rejected;
 }
 
 } // namespace smart_home

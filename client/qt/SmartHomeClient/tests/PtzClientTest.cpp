@@ -25,13 +25,27 @@ private:
 
 void PtzClientTest::buildsDirectionalQueries()
 {
-    const QUrlQuery start = PtzClient::buildControlQuery(PtzClient::Direction::UpRight, true);
-    QCOMPARE(start.queryItemValue(QStringLiteral("direction")), QStringLiteral("up-right"));
-    QCOMPARE(start.queryItemValue(QStringLiteral("move")), QStringLiteral("start"));
+    /*
+     * 球机网页端的真实接口使用 channelId/value/speed 三个查询参数：
+     * value=u 表示向上，speed=4 是能力接口返回的默认速度。
+     * 这里把设备协议写成单测，防止后续又误改回抽象的 direction/move 参数。
+     */
+    const QUrlQuery start = PtzClient::buildControlQuery(PtzClient::Direction::Up, true);
+    QCOMPARE(start.queryItemValue(QStringLiteral("channelId")), QStringLiteral("1"));
+    QCOMPARE(start.queryItemValue(QStringLiteral("value")), QStringLiteral("u"));
+    QCOMPARE(start.queryItemValue(QStringLiteral("speed")), QStringLiteral("4"));
 
     const QUrlQuery stop = PtzClient::buildControlQuery(PtzClient::Direction::Down, false);
-    QCOMPARE(stop.queryItemValue(QStringLiteral("direction")), QStringLiteral("stop"));
-    QCOMPARE(stop.queryItemValue(QStringLiteral("move")), QStringLiteral("stop"));
+    QCOMPARE(stop.queryItemValue(QStringLiteral("channelId")), QStringLiteral("1"));
+    QCOMPARE(stop.queryItemValue(QStringLiteral("value")), QStringLiteral("s"));
+    QCOMPARE(stop.queryItemValue(QStringLiteral("speed")), QStringLiteral("4"));
+
+    /* channelId/speed 可按摄像头配置和能力探测结果覆盖，不能写死在实现内部。 */
+    const QUrlQuery custom = PtzClient::buildControlQuery(
+        PtzClient::Direction::DownRight, true, 2, 7);
+    QCOMPARE(custom.queryItemValue(QStringLiteral("channelId")), QStringLiteral("2"));
+    QCOMPARE(custom.queryItemValue(QStringLiteral("value")), QStringLiteral("4"));
+    QCOMPARE(custom.queryItemValue(QStringLiteral("speed")), QStringLiteral("7"));
 }
 
 void PtzClientTest::respond(QTcpSocket *socket, const QByteArray &body)
@@ -73,10 +87,10 @@ void PtzClientTest::probesAndSendsOnlyToLocalFakeServer()
 
     client.startMove(PtzClient::Direction::Up);
     QTRY_VERIFY_WITH_TIMEOUT(requests.size() >= 2, 2000);
-    QVERIFY(requests.at(1).contains("GET /api/ptz/control?direction=up&move=start"));
+    QVERIFY(requests.at(1).contains("GET /api/ptz/control?channelId=1&value=u&speed=4"));
     client.stopMove();
     QTRY_VERIFY_WITH_TIMEOUT(requests.size() >= 3, 2000);
-    QVERIFY(requests.at(2).contains("GET /api/ptz/control?direction=stop&move=stop"));
+    QVERIFY(requests.at(2).contains("GET /api/ptz/control?channelId=1&value=s&speed=4"));
     QVERIFY(readySpy.count() >= 1);
 }
 

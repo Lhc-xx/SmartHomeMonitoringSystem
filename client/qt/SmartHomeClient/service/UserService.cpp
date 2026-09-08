@@ -19,6 +19,7 @@ UserService::UserService(TcpClient *tcpClient, QObject *parent)
     /* UserService 只订阅 TcpClient 的高层信号，始终不直接触碰 QTcpSocket。 */
     if (m_tcpClient != nullptr) {
         connect(m_tcpClient, &TcpClient::dataReceived, this, &UserService::onDataReceived);
+        connect(m_tcpClient, &TcpClient::connected, this, &UserService::onConnected);
         connect(m_tcpClient, &TcpClient::errorOccurred, this, &UserService::onTcpError);
         connect(m_tcpClient, &TcpClient::disconnected, this, &UserService::onDisconnected);
     }
@@ -81,6 +82,16 @@ void UserService::enqueueRequest(const QueuedRequest &request)
 
     /* 没有等待项时立即发送；有等待项时进入同一条 requestId 串行队列。 */
     if (m_pending == PendingRequest::None && m_requestQueue.isEmpty()) {
+        if (!m_tcpClient->isConnected()) {
+            /*
+             * QTcpSocket 的 connectToHost 是异步操作，用户可能在窗口刚显示时
+             * 立即点击登录/注册。先保存完整 TLV，等 connected 信号到达后再发送，
+             * 从源头消除“TCP 连接尚未建立”的竞态，而不是让 UI 重复点击。
+             */
+            m_requestQueue.append(request);
+            emit requestWaiting(QStringLiteral("正在连接服务器，请稍候…"));
+            return;
+        }
         beginRequest(request.type, request.packet, request.requestId, request.actionName);
         return;
     }
@@ -138,9 +149,13 @@ void UserService::registerUser(const QString &username, const QString &password)
     }
     const quint32 requestId = nextRequestId();
     const QByteArray packet = ClientProtocol::encodeRegisterRequest(username.trimmed(), password, requestId);
-    if (!beginRequest(PendingRequest::Register, packet, requestId, QStringLiteral("注册"))) {
-        emit registerFailed(QStringLiteral("注册请求未发送。"));
-    }
+    enqueueRequest(QueuedRequest{
+        PendingRequest::Register,
+        packet,
+        requestId,
+        QStringLiteral("注册"),
+        false
+    });
 }
 
 void UserService::loginUser(const QString &username, const QString &password)
@@ -151,9 +166,13 @@ void UserService::loginUser(const QString &username, const QString &password)
     }
     const quint32 requestId = nextRequestId();
     const QByteArray packet = ClientProtocol::encodeLoginRequest(username.trimmed(), password, requestId);
-    if (!beginRequest(PendingRequest::Login, packet, requestId, QStringLiteral("登录"))) {
-        emit loginFailed(QStringLiteral("登录请求未发送。"));
-    }
+    enqueueRequest(QueuedRequest{
+        PendingRequest::Login,
+        packet,
+        requestId,
+        QStringLiteral("登录"),
+        false
+    });
 }
 
 bool UserService::canStartAuthenticatedRequest(const QString &actionName)
@@ -401,6 +420,16 @@ void UserService::onDataReceived(const QByteArray &data)
 void UserService::onTcpError(const QString &message)
 {
     if (m_pending != PendingRequest::None) failPending(QStringLiteral("网络错误：%1").arg(message));
+    else if (!m_requestQueue.isEmpty()) {
+        /* 连接失败时保留排队的认证请求，TcpClient 会自动重连后继续发送。 */
+        emit requestWaiting(QStringLiteral("网络连接暂未建立，正在自动重试…"));
+    }
+}
+
+void UserService::onConnected()
+{
+    /* 连接恢复后，发送此前在握手阶段缓存的登录/注册 TLV。 */
+    scheduleNextRequest();
 }
 
 void UserService::onDisconnected()
@@ -411,7 +440,11 @@ void UserService::onDisconnected()
      * 避免资源请求携带旧 userId/token 并产生难以判断的越权或过期错误。
      */
     /* 连接上下文已失效，旧队列中的 token 和 PTZ 状态不能跨连接重放。 */
-    m_requestQueue.clear();
+    /* 未登录阶段的认证请求可以跨一次短暂断线保留，待自动重连后发送。 */
+    const bool waitingForAuthentication = m_userId == 0 && !m_requestQueue.isEmpty();
+    if (!waitingForAuthentication) {
+        m_requestQueue.clear();
+    }
     m_dispatchScheduled = false;
     if (m_pending != PendingRequest::None) {
         failPending(QStringLiteral("与服务器的连接已断开。"));
@@ -419,6 +452,9 @@ void UserService::onDisconnected()
     m_userId = 0;
     m_token.clear();
     m_receiveBuffer.clear();
+    if (waitingForAuthentication) {
+        emit requestWaiting(QStringLiteral("服务器连接已断开，正在重新连接…"));
+    }
 }
 
 void UserService::setRequestTimeout(int ms)

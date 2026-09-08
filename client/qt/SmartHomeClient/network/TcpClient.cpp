@@ -92,6 +92,12 @@ void TcpClient::disconnectServer()
     m_socket->disconnectFromHost();
 }
 
+bool TcpClient::isConnected() const
+{
+    return m_socket != nullptr
+        && m_socket->state() == QAbstractSocket::ConnectedState;
+}
+
 void TcpClient::setAutoReconnect(bool enabled)
 {
     m_autoReconnect = enabled;

@@ -31,6 +31,9 @@ public:
     void sendData(const QByteArray &data);
     void disconnectServer();
 
+    /* 供业务层判断异步连接是否已经完成，避免在握手期间误发请求。 */
+    bool isConnected() const;
+
     void setAutoReconnect(bool enabled);
     void setReconnectDelay(int ms);
     void setReconnectMaxAttempts(int maxAttempts);

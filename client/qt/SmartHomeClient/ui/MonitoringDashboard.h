@@ -39,6 +39,12 @@ public:
 
     void setCameraConfigs(const QList<CameraConfig> &configs);
     void setDevices(const QList<ClientProtocol::DeviceInfo> &devices);
+    /* 让 MainWindow 的网络/业务结果直接显示在当前可见工作台。 */
+    void setStatusMessage(const QString &message);
+    /* 将网络失败或业务结果追加到左侧事件面板，避免错误只出现在不可见页面。 */
+    void logEvent(const QString &message);
+    /* 返回当前本地摄像头对应的 RTSP 地址，仅供开始服务端录像时建立流会话。 */
+    QString selectedCameraRtspUrl() const;
     /* 根据服务器响应切换录像按钮，避免请求尚未成功时误显示“停止录像”。 */
     void setRecordingActive(bool active);
     /* 注入云台转发回调（参数：cameraUrl, direction, move），用于经服务器转发。 */
@@ -52,6 +58,8 @@ public:
 
 signals:
     void eventLogged(const QString &message);
+    /* 从元数据页返回工作台时复用同一条导航信号。 */
+    void requestPreview();
     void requestDeviceList();
     /* 工作台查询必须携带右侧服务端设备树当前选中的设备 ID。 */
     void requestRecordList(quint64 deviceId);
@@ -76,6 +84,8 @@ private:
     void applySelectedCamera(QTreeWidgetItem *item);
     void setPtzButtonsEnabled(bool enabled);
     quint64 selectedServerDeviceId() const;
+    /* 按本地枪机/球机类型优先寻找对应服务端设备，找不到时使用首个设备。 */
+    quint64 fallbackServerDeviceId(const QString &localType) const;
     int slotForConfig(const CameraConfig &config, QList<bool> &usedSlots) const;
 
     QList<CameraConfig> m_cameraConfigs;

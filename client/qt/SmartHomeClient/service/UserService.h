@@ -44,6 +44,8 @@ signals:
     void registerFailed(const QString &reason);
     void loginSuccess(quint64 userId);
     void loginFailed(const QString &reason);
+    /* TCP 仍在异步连接时，通知界面请求已排队而不是误报发送失败。 */
+    void requestWaiting(const QString &message);
     void deviceListReceived(const QList<ClientProtocol::DeviceInfo> &devices);
     void recordListReceived(const QList<ClientProtocol::RecordInfo> &records);
     void requestFailed(const QString &reason);
@@ -61,6 +63,7 @@ signals:
 
 private slots:
     void onDataReceived(const QByteArray &data);
+    void onConnected();
     void onTcpError(const QString &message);
     void onDisconnected();
     void onRequestTimeout();
