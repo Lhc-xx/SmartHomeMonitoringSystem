@@ -52,7 +52,8 @@ bool expectInvalid(smart_home::PtzHandler &handler,
                    const std::string &direction,
                    const std::string &move) {
     const TlvMessage response = handler.handle(makeRequest(url, direction, move));
-    return readError(response) == static_cast<int32_t>(smart_home::ErrorCode::INVALID_PARAMETER);
+    /* ErrorCode 是 common 协议头定义的全局枚举，不能加 smart_home 命名空间。 */
+    return readError(response) == static_cast<int32_t>(ErrorCode::INVALID_PARAMETER);
 }
 
 bool expectDeviceValue(const std::string &direction,
