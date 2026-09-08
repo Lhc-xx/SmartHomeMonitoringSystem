@@ -43,7 +43,8 @@ String := ByteLength(uint16, big-endian) + UTF8Bytes(ByteLength)
 | `0x1301` | `RECORD_QUERY_REQUEST` | Client → Server |
 | `0x1302` | `RECORD_QUERY_RESPONSE` | Server → Client |
 
-流媒体和云台消息由其他成员负责，不在本文档中重新定义。
+流媒体和云台消息的媒体/HTTP 实现由其他成员负责，但其 TLV 控制字段仍遵循本文件的
+大端序、长度上限和 RequestId 规则。
 
 ## 3. 注册
 
@@ -149,7 +150,9 @@ repeat count times:
 | `0x1601` | `RECORD_START_REQUEST` | `deviceId:uint64`（大端） |
 | `0x1701` | `RECORD_STOP_REQUEST` | 无 |
 
-`String` 的编码规则与第 1 节一致（`uint16` 大端字节长度 + UTF-8 字节）。
+`String` 的编码规则与第 1 节一致（`uint16` 大端字节长度 + UTF-8 字节）。服务端还会
+严格要求控制请求体与声明字段的长度完全一致：截断、尾随字节和错误宽度均返回
+`INVALID_PACKET`，不会创建流会话或录像任务；`deviceId=0` 返回 `INVALID_PARAMETER`。
 
 ## 7. 错误码
 

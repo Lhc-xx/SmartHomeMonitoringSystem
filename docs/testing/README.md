@@ -20,7 +20,8 @@
 | `integration_test` | Mock + FFmpeg 端到端（依赖 FFmpeg + 测试视频） |
 | `linux_client_test` | Linux 联调客户端 |
 
-当前结果：**16/16 通过**（`integration_test` 依赖 `data/test_stream.mp4`，用 `ffmpeg` 生成后运行）。
+仓库此前在目标 Ubuntu 环境记录过 16/16 通过（`integration_test` 依赖
+`data/test_stream.mp4`）；本 Windows 工作树本轮未把该历史结果冒充为当前运行结果。
 
 ### Qt 客户端（Qt 5.14.2）
 
@@ -34,7 +35,14 @@
 | `MonitoringDashboardTest` | 工作台四宫格/设备树/云台禁用状态 |
 | `NetworkBehaviorTest` / `UserServiceTest` | 网络层与认证服务层 |
 | `MainWindowTest` / `RegisterDialogTest` | 主窗口与注册对话框 |
-| `FilePlaybackPlayerTest` | 录像回放 ffmpeg 参数 |
+| `FilePlaybackPlayerTest` | 录像回放 ffmpeg 参数、缺失/不可读本地路径的提前拒绝 |
+| `ServerEndpointTest` | Qt 服务端默认地址、环境变量覆盖和非法端口回退 |
+
+### 服务端纯逻辑测试
+
+| 测试 | 覆盖 |
+| --- | --- |
+| `stream_request_test` | 流地址长度、录像 deviceId 大端序、停止请求空 value 校验 |
 
 ### 数据库集成测试（需 MySQL，`-DSMARTHOME_ENABLE_DB_INTEGRATION_TESTS=ON`）
 
@@ -60,7 +68,9 @@
 | 范围 | 命令/结果 |
 | --- | --- |
 | Common 协议 | 独立根构建（关闭 Server/Linux/Qt）后 CTest：5/5 PASS |
-| Qt 5.14.2 MinGW32 | `SmartHomeClient` 构建：PASS；CTest：12/12 PASS |
+| Qt 5.14.2 MinGW32 | `SmartHomeClient` 构建：PASS；CTest：13/13 PASS（含回放路径校验） |
+| Qt 服务端端点配置 | 新增 `ServerEndpointTest`，Qt CTest：13/13 PASS |
+| 服务端流/录像请求体 | 独立 MinGW 纯逻辑编译运行：10/10 PASS |
 | Qt 本机摄像头配置 | 构建后复制到可执行文件同级 `conf`：PASS（未输出配置内容） |
 | Windows Server | configure：`BLOCKED_BY_ENV`，缺少 libcurl/cJSON（服务端还需要 MySQL 客户端库）；未修改 CMake 绕过 |
 | 真实 Server/TCP/摄像头 | 本轮未启动、未访问 |

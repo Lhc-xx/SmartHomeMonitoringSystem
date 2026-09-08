@@ -2,6 +2,7 @@
 
 #include "RtspPlayer.h"   // 复用 extractJpegFrames（纯函数，已单测）
 
+#include <QFileInfo>
 #include <QProcess>
 
 FilePlaybackPlayer::FilePlaybackPlayer(QObject *parent)
@@ -45,6 +46,18 @@ void FilePlaybackPlayer::play(const QString &path, const QString &ffmpegPath)
     stop();
     if (path.trimmed().isEmpty()) {
         emit errorOccurred(QStringLiteral("录像文件路径为空"));
+        return;
+    }
+
+    /*
+     * 录像查询响应只携带文件路径，播放器运行在客户端进程中，因此该路径
+     * 必须是客户端本机或已挂载共享目录中的可读普通文件。提前校验可以把
+     * “服务端路径无法访问”明确反馈给界面，避免先启动 FFmpeg 后才得到笼统
+     * 的进程错误；同时不引入新的传输协议，保持现有分工边界。
+     */
+    const QFileInfo fileInfo(path);
+    if (!fileInfo.exists() || !fileInfo.isFile() || !fileInfo.isReadable()) {
+        emit errorOccurred(QStringLiteral("录像文件不存在或不可读：%1").arg(path));
         return;
     }
 

@@ -58,6 +58,9 @@ sudo apt-get install -y mysql-server
 | `SMARTHOME_USE_SERVER_STREAM=1` | 走「服务器转发 → FFmpeg 解码」链路（默认走 RtspPlayer 直连） |
 | `SMARTHOME_STREAM_URL` | 指定服务器推流地址（空则取第一路启用摄像头的 RTSP） |
 
+Qt 客户端未设置上述变量时使用 `127.0.0.1:7777`；远程部署必须在启动客户端的同一
+PowerShell 会话中设置服务器 IP 和端口，避免把开发机地址编译进程序。
+
 ## 三、运行
 
 ```bash

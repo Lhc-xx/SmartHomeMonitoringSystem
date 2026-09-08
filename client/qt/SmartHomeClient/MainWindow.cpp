@@ -14,6 +14,7 @@
 
 #include "model/DeviceModel.h"
 #include "model/RecordModel.h"
+#include "network/ServerEndpoint.h"
 #include "network/TcpClient.h"
 #include "service/UserService.h"
 #include "ui/LoginWidget.h"
@@ -289,16 +290,12 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     /*
-     * 生产客户端默认直连 ECS 服务端；开发机或测试环境可通过环境变量覆盖地址，
-     * 避免把 SSH 隧道地址误当成最终部署配置。实际网络读写仍由 TcpClient 负责。
+     * 默认使用本机端点，避免把某台开发机地址固化到可执行文件；部署到 ECS 或
+     * 局域网时通过 SMARTHOME_SERVER_IP/SMARTHOME_SERVER_PORT 覆盖，实际网络读写
+     * 仍由 TcpClient 负责。
      */
-    const QString serverIp = qEnvironmentVariable(
-        "SMARTHOME_SERVER_IP", QStringLiteral("8.163.52.40"));
-    const QByteArray portValue = qgetenv("SMARTHOME_SERVER_PORT");
-    const quint16 serverPort = portValue.isEmpty()
-        ? static_cast<quint16>(7777)
-        : static_cast<quint16>(portValue.toUShort());
-    m_tcpClient->connectServer(serverIp, serverPort);
+    const ServerEndpoint endpoint = resolveServerEndpoint();
+    m_tcpClient->connectServer(endpoint.host, endpoint.port);
 }
 
 QWidget *MainWindow::createDataPage()

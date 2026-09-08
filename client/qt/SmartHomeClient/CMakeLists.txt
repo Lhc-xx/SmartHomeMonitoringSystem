@@ -52,6 +52,8 @@ add_executable(SmartHomeClient
     MainWindow.ui
     network/TcpClient.cpp
     network/TcpClient.h
+    network/ServerEndpoint.cpp
+    network/ServerEndpoint.h
     network/PtzClient.cpp
     network/PtzClient.h
     protocol/ClientProtocol.cpp
@@ -317,6 +319,8 @@ if(BUILD_TESTING)
         MainWindow.ui
         network/TcpClient.cpp
         network/TcpClient.h
+        network/ServerEndpoint.cpp
+        network/ServerEndpoint.h
         protocol/ClientProtocol.cpp
         protocol/ClientProtocol.h
         service/UserService.cpp
@@ -357,6 +361,22 @@ if(BUILD_TESTING)
     target_link_libraries(MainWindowTest PRIVATE Qt5::Widgets Qt5::Network Qt5::Test)
     target_compile_features(MainWindowTest PRIVATE cxx_std_11)
     add_test(NAME MainWindowTest COMMAND MainWindowTest)
+
+    #[[
+    服务器端点配置测试只检查默认本机地址、环境变量覆盖和非法端口回退，
+    不创建 QTcpSocket，也不会访问 ECS、局域网摄像头或项目服务器。
+    ]]
+    add_executable(ServerEndpointTest
+        tests/ServerEndpointTest.cpp
+        network/ServerEndpoint.cpp
+        network/ServerEndpoint.h
+    )
+    target_include_directories(ServerEndpointTest PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(ServerEndpointTest PRIVATE Qt5::Core Qt5::Test)
+    target_compile_features(ServerEndpointTest PRIVATE cxx_std_11)
+    add_test(NAME ServerEndpointTest COMMAND ServerEndpointTest)
 
     add_executable(RegisterDialogTest
         tests/RegisterDialogTest.cpp

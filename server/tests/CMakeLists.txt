@@ -122,6 +122,15 @@ target_compile_features(session_policy_test PRIVATE cxx_std_11)
 target_include_directories(session_policy_test PRIVATE ${SERVER_INCLUDE_DIR} ${COMMON_INCLUDE_DIR})
 add_test(NAME session_policy_test COMMAND session_policy_test)
 
+#[[流/录像控制请求体纯解析测试：不依赖 socket、MySQL、FFmpeg 或摄像头。]]
+add_executable(stream_request_test
+    stream_request_test.cc
+    ../src/stream_request.cc)
+target_link_libraries(stream_request_test PRIVATE pthread)
+target_compile_features(stream_request_test PRIVATE cxx_std_11)
+target_include_directories(stream_request_test PRIVATE ${SERVER_INCLUDE_DIR})
+add_test(NAME stream_request_test COMMAND stream_request_test)
+
 #[[录像文件写入器 + 目录检查（角色 A）：不依赖 MySQL / log4cpp / epoll，自动加入 CTest。]]
 add_executable(recorder_test
     recorder_test.cc ../src/recorder.cc)
@@ -159,6 +168,7 @@ add_test(NAME mock_media_source_test COMMAND mock_media_source_test)
 add_executable(reactor_test
     reactor_test.cc
     ../src/reactor.cc
+    ../src/stream_request.cc
     ../src/connection.cc
     ../src/thread_pool.cc
     ../src/media/stream_session.cc
